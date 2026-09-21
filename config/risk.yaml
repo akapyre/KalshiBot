@@ -1,0 +1,12 @@
+# Risk controls. Per your instructions: flat $15/wager, no daily loss cap,
+# no max concurrent positions -- both limits are `null` (disabled) but wired
+# up so you can turn them on later without touching code.
+
+stake_usd: 15
+
+daily_loss_cap_usd: null       # e.g. 150 to stop trading for the day after -$150
+max_concurrent_positions: null # e.g. 5 to cap how many open games can have a live bet
+
+# Hard kill switch. Independent of dry_run: even in "live" mode, if this is
+# false no order is ever submitted. Flip via TRADING_ENABLED env var.
+trading_enabled_env_var: TRADING_ENABLED

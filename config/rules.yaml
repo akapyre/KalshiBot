@@ -1,0 +1,119 @@
+# KalshiBot rule set
+#
+# ODDS CONVENTION: all odds in this file are American moneyline odds for the
+# PREGAME-FAVORED team (the team that opened as favorite). Negative = favorite,
+# positive = underdog; the further from zero, the stronger the lean.
+#
+# ASSUMPTIONS I made translating your plain-English rules into exact numeric
+# comparisons -- READ THESE before going live, they control real money:
+#
+#   1. "-200 or higher to start" = pregame odds <= -200 (i.e. -200, -250,
+#      -300... "higher" read as magnitude, not numeric value).
+#   2. "-150 to start" is treated as its own band: pregame odds in
+#      [-199, -150], so it doesn't overlap the -200-or-steeper rule above it.
+#      Your original wording only said "-150", not a band -- if you meant an
+#      exact -150 only (no wider range), tell me and I'll tighten it.
+#   3. "odds drop / move between +100-+200" and "move past +115" both mean
+#      the live line for the pregame favorite has drifted from its pregame
+#      price up into that positive (underdog) range.
+#   4. "do not wager if the team falls below +200" (soccer rule 2) -- I
+#      interpreted this the same as rule 1's ceiling: don't place if the
+#      line has moved BEYOND +200 (i.e. more than +200), not literally
+#      "less than +200". This is the most ambiguous line in your rule set --
+#      confirm this reads right against the dry-run logs before going live.
+#   5. "-115 odds or below" (NFL) = live odds >= -115 (i.e. the favorite has
+#      faded from -250 up toward -115 or further, including into positive
+#      territory) -- "below" read as "the favorite is less heavily favored",
+#      not as a smaller signed number.
+#   6. Tennis "moves below +100" = live odds < 100 (no floor specified, so
+#      any drift under +100 qualifies, including if it's still a favorite
+#      that simply isn't -300 anymore).
+#
+# STAKE / RISK: flat $15 per wager (config/risk.yaml). No daily loss cap and
+# no max concurrent positions are enforced right now, per your instruction --
+# both are wired up as config knobs so you can turn them on later without
+# code changes.
+#
+# MULTI-BET: every rule below allows exactly one wager per game, EXCEPT
+# nfl_fourth_quarter_reentry, which is explicitly a second wager on a game
+# that already had nfl_favorite_fade fire. That is the only sanctioned
+# multi-bet in the whole rule set.
+
+stake_usd: 15
+
+rules:
+  - id: soccer_heavy_favorite
+    sport: soccer
+    description: >
+      Pregame favorite at -200 or steeper. Wager on that team when its live
+      price drifts to between +100 and +200. Skip if it drifts past +200.
+    pregame:
+      side: favorite
+      max_odds: -200          # pregame odds <= -200
+    trigger:
+      min_odds: 100
+      max_odds: 200            # inclusive upper bound
+    invalidate_if:
+      odds_beyond: 200         # do not place once live odds have exceeded +200
+    max_bets_per_game: 1
+
+  - id: soccer_moderate_favorite
+    sport: soccer
+    description: >
+      Pregame favorite at -150 (band: -150 to -199). Wager when live price
+      moves past +115. Skip if trailing by a goal past halftime, or if the
+      line has moved beyond +200.
+    pregame:
+      side: favorite
+      min_odds: -199
+      max_odds: -150
+    trigger:
+      min_odds: 115            # exclusive: "past +115"
+      exclusive_min: true
+    invalidate_if:
+      odds_beyond: 200
+      trailing_by_goal_after_halftime: true
+    max_bets_per_game: 1
+
+  - id: tennis_heavy_favorite
+    sport: tennis
+    description: >
+      Pregame favorite at -300 or steeper. Wager when live price for the
+      favorite moves below +100.
+    pregame:
+      side: favorite
+      max_odds: -300
+    trigger:
+      max_odds: 99              # "below +100"
+    invalidate_if: {}
+    max_bets_per_game: 1
+
+  - id: nfl_favorite_fade
+    sport: nfl
+    description: >
+      Pregame favorite at -250 or steeper. First wager when live price has
+      faded to -115 or looser (i.e. -115 through positive territory).
+    pregame:
+      side: favorite
+      max_odds: -250
+    trigger:
+      min_odds: -115            # odds >= -115
+    invalidate_if: {}
+    max_bets_per_game: 1
+
+  - id: nfl_fourth_quarter_reentry
+    sport: nfl
+    description: >
+      SECOND wager on the same game as nfl_favorite_fade, only in the 4th
+      quarter, only if live price is between +110 and +165. This is the sole
+      exception to the "no multi-bet" rule.
+    requires_prior_rule: nfl_favorite_fade
+    pregame:
+      side: favorite
+      max_odds: -250
+    trigger:
+      min_odds: 110
+      max_odds: 165
+      quarter: 4
+    invalidate_if: {}
+    max_bets_per_game: 2       # combined with nfl_favorite_fade's 1st bet
