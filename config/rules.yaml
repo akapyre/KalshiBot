@@ -28,6 +28,15 @@
 #   6. Tennis "moves below +100" = live odds < 100 (no floor specified, so
 #      any drift under +100 qualifies, including if it's still a favorite
 #      that simply isn't -300 anymore).
+#   7. MLB "falls below +100 but not past +200" -- this is the most confusing
+#      wording in the whole set, since "below +100" and "not past +200" would
+#      be redundant if read literally (anything under +100 is automatically
+#      under +200 too). I read this as the SAME shape as soccer_heavy_favorite:
+#      a band from +100 to +200 inclusive, on the theory that "falls below"
+#      describes the team's fortunes getting worse (colloquial), not the
+#      number decreasing. If you actually meant "live odds < 100, but
+#      invalidate if it ever went past +200 first," tell me and I'll switch
+#      it -- this is a genuine coin-flip read, not a confident one.
 #
 # STAKE / RISK: flat $15 per wager (config/risk.yaml). No daily loss cap and
 # no max concurrent positions are enforced right now, per your instruction --
@@ -117,3 +126,20 @@ rules:
       quarter: 4
     invalidate_if: {}
     max_bets_per_game: 2       # combined with nfl_favorite_fade's 1st bet
+
+  - id: mlb_favorite_fade
+    sport: mlb
+    description: >
+      Pregame favorite at -200 or steeper. Wager when live price is between
+      +100 and +200, but only once the game is past the 6th inning (7th
+      inning or later). See assumption #7 above -- the trigger band here is
+      my best-guess reading of ambiguous wording.
+    pregame:
+      side: favorite
+      max_odds: -200
+    trigger:
+      min_odds: 100
+      max_odds: 200
+      period_min: 7             # "past the 6th inning" = 7th inning or later
+    invalidate_if: {}
+    max_bets_per_game: 1

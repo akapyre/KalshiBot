@@ -21,7 +21,8 @@ class Rule:
     trigger_min: int | None
     trigger_max: int | None
     trigger_exclusive_min: bool
-    trigger_quarter: int | None
+    trigger_quarter: int | None      # exact-match period (e.g. NFL "in the 4th quarter")
+    trigger_period_min: int | None   # minimum period, inclusive (e.g. MLB "past the 6th inning")
     odds_beyond_invalidate: int | None
     trailing_goal_invalidate: bool
     requires_prior_rule: str | None
@@ -41,6 +42,7 @@ class Rule:
             trigger_max=trigger.get("max_odds"),
             trigger_exclusive_min=bool(trigger.get("exclusive_min", False)),
             trigger_quarter=trigger.get("quarter"),
+            trigger_period_min=trigger.get("period_min"),
             odds_beyond_invalidate=invalidate.get("odds_beyond"),
             trailing_goal_invalidate=bool(invalidate.get("trailing_by_goal_after_halftime", False)),
             requires_prior_rule=d.get("requires_prior_rule"),
@@ -84,6 +86,9 @@ def _trigger_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
         return False
     if rule.trigger_quarter is not None and snapshot.period != rule.trigger_quarter:
         return False
+    if rule.trigger_period_min is not None:
+        if snapshot.period is None or snapshot.period < rule.trigger_period_min:
+            return False
     return True
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-Sport = Literal["soccer", "tennis", "nfl"]
+Sport = Literal["soccer", "tennis", "nfl", "mlb"]
 
 
 @dataclass
@@ -25,7 +25,7 @@ class GameSnapshot:
     is_live: bool
     is_final: bool
     # game-state fields, only populated where the sport/rule needs them
-    period: int | None = None            # e.g. NFL quarter (1-4, 5=OT)
+    period: int | None = None            # e.g. NFL quarter (1-4, 5=OT) or MLB inning
     home_score: int | None = None
     away_score: int | None = None
     past_halftime: bool | None = None

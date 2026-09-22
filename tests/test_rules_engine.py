@@ -128,6 +128,39 @@ def test_no_double_fire_of_same_rule(engine):
     assert second == []
 
 
+def test_mlb_favorite_fade_triggers_past_6th_inning(engine):
+    eng, _ = engine
+    snap = make_snapshot(
+        sport="mlb", pregame_favorite_odds=-220, live_favorite_odds=150, period=7
+    )
+    decisions = eng.evaluate(snap)
+    assert [d.rule_id for d in decisions] == ["mlb_favorite_fade"]
+
+
+def test_mlb_favorite_fade_skips_before_7th_inning(engine):
+    eng, _ = engine
+    snap = make_snapshot(
+        sport="mlb", pregame_favorite_odds=-220, live_favorite_odds=150, period=6
+    )
+    assert eng.evaluate(snap) == []
+
+
+def test_mlb_favorite_fade_skips_unknown_inning(engine):
+    eng, _ = engine
+    snap = make_snapshot(
+        sport="mlb", pregame_favorite_odds=-220, live_favorite_odds=150, period=None
+    )
+    assert eng.evaluate(snap) == []
+
+
+def test_mlb_favorite_fade_skips_out_of_band(engine):
+    eng, _ = engine
+    snap = make_snapshot(
+        sport="mlb", pregame_favorite_odds=-220, live_favorite_odds=250, period=8
+    )
+    assert eng.evaluate(snap) == []
+
+
 def test_no_other_rule_fires_after_one_has_for_same_game(engine):
     eng, store = engine
     # soccer_heavy_favorite fires and is recorded.

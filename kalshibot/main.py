@@ -23,7 +23,7 @@ from .state import BetStateStore
 # Tennis excluded -- SportsGameOdds doesn't cover it (confirmed on both
 # free and paid tiers). The tennis rule in config/rules.yaml stays defined
 # but never fires as a result. See kalshibot/odds_providers/sportsgameodds.py.
-SPORTS: list[Sport] = ["soccer", "nfl"]
+SPORTS: list[Sport] = ["soccer", "nfl", "mlb"]
 
 logging.basicConfig(
     level=logging.INFO,

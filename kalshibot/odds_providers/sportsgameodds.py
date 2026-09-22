@@ -55,6 +55,7 @@ LEAGUE_IDS: dict[Sport, list[str]] = {
     "nfl": ["NFL"],
     "soccer": ["EPL", "LA_LIGA", "BUNDESLIGA", "IT_SERIE_A", "FR_LIGUE_1"],
     "tennis": [],  # not covered by this provider -- see module docstring
+    "mlb": ["MLB"],  # confirmed present in GET /v2/leagues
 }
 
 
@@ -151,7 +152,9 @@ class SportsGameOddsProvider:
 
 
 def _parse_period_number(period_id: str) -> int | None:
-    """"1q" -> 1, "4q" -> 4, "2h" -> 2; "ot"/"game"/"reg"/"" -> None."""
+    """"1q" -> 1, "4q" -> 4, "2h" -> 2; "ot"/"game"/"reg"/"" -> None.
+    Assumed (not yet confirmed against a real MLB response) that innings
+    follow the same leading-digit convention, e.g. "7t"/"7b" -> 7."""
     if period_id and period_id[0].isdigit():
         return int(period_id[0])
     return None

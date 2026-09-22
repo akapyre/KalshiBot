@@ -26,6 +26,7 @@ SERIES_BY_SPORT: dict[Sport, str] = {
     "nfl": "KXNFLGAME",
     "soccer": "KXSOCCERGAME",   # confirm exact series ticker per league on kalshi.com/browse
     "tennis": "KXTENNISGAME",   # confirm exact series ticker per tour
+    "mlb": "KXMLBGAME",         # unverified guess -- confirm on kalshi.com/browse
 }
 
 
