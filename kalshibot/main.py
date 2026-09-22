@@ -15,7 +15,7 @@ from .executor import Executor
 from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, KalshiCredentials
 from .matching import MarketMatcher
 from .odds_providers.base import Sport
-from .odds_providers.therundown import TheRundownProvider
+from .odds_providers.sportsgameodds import SportsGameOddsProvider
 from .risk import RiskConfig, RiskManager
 from .rules_engine import RulesEngine, load_rules
 from .state import BetStateStore
@@ -57,7 +57,7 @@ def get_open_position_count(kalshi: KalshiClient) -> int:
 
 def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     kalshi = build_kalshi_client(demo)
-    odds_provider = TheRundownProvider()
+    odds_provider = SportsGameOddsProvider()
     matcher = MarketMatcher(kalshi)
     rules, stake_usd = load_rules()
     state_store = BetStateStore()

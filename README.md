@@ -27,9 +27,12 @@ odds provider (live odds + score/period)
   `max_concurrent_positions` are both `null` (disabled) per your instructions,
   wired up so you can set them later without touching code.
 - `kalshibot/kalshi_client.py` -- Kalshi's RSA-PSS signed REST API.
-- `kalshibot/odds_providers/therundown.py` -- example live odds + game-state
-  adapter. **Not verified against a live API key** (I don't have one) --
-  see the warning at the top of that file before trusting it past dry-run.
+- `kalshibot/odds_providers/sportsgameodds.py` -- live odds + game-state
+  adapter for sportsgameodds.com. **Not verified against a live API key**
+  (I don't have one) -- see the warning at the top of that file before
+  trusting it past dry-run. (TheRundown's RapidAPI listing was tried
+  first and dropped -- its odds values are masked placeholders regardless
+  of plan tier.)
 - `kalshibot/matching.py` -- maps a game to a Kalshi market ticker + side.
   Also unverified against live data; it logs and skips rather than guessing
   when it can't find exactly one confident match.
@@ -52,9 +55,10 @@ cp .env.example .env   # then fill in the values below
    kalshi.com/account/profile. Save the private key PEM it gives you (shown
    once) to a file, point `KALSHI_PRIVATE_KEY_PATH` at it, and set
    `KALSHI_API_KEY_ID` to the key ID.
-2. **Odds/game-state provider**: sign up with TheRundown (or swap in
-   SportsDataIO/OddsJam by implementing `OddsProvider` -- see
-   `kalshibot/odds_providers/base.py`), set `THERUNDOWN_API_KEY`.
+2. **Odds/game-state provider**: sign up at sportsgameodds.com (free tier
+   works to start, real -- not masked -- odds, just delayed vs. their paid
+   tiers), set `SPORTSGAMEODDS_API_KEY`. Swap providers entirely by
+   implementing `OddsProvider` -- see `kalshibot/odds_providers/base.py`.
 3. Fund your Kalshi account with however much you want the bot risking.
 
 ## Running
@@ -80,10 +84,10 @@ Run tests any time with `python3 -m pytest tests/ -v`.
    I picked the reading that seemed most consistent with the rest of the rule
    set, but you should check it against a few dry-run log lines before
    trusting it with money.
-2. **Verify the two unverified integrations** (`therundown.py` field names,
-   `matching.py` ticker/title parsing) against real API responses -- I built
-   these from public docs, not a live account, so the exact JSON shape is my
-   best guess, not a tested fact.
+2. **Verify the two unverified integrations** (`sportsgameodds.py` field
+   names and `LEAGUE_IDS`, `matching.py` ticker/title parsing) against real
+   API responses -- I built these from public docs, not a live account, so
+   the exact JSON shape is my best guess, not a tested fact.
 3. **Watch dry-run through a handful of live games first.** It runs the exact
    same rules engine and state machine as live mode -- it just doesn't submit
    the order -- so what you see in the logs is what would have happened.
