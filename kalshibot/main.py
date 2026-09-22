@@ -74,6 +74,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     )
 
     while True:
+        live_counts: dict[str, int] = {}
         for sport in SPORTS:
             try:
                 snapshots = odds_provider.list_live_games(sport)
@@ -82,6 +83,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                 time.sleep(2)  # back off before the next sport's request on a rate-limited plan
                 continue
             time.sleep(1)  # space out per-sport requests so we don't burst a free-tier rate limit
+            live_counts[sport] = len(snapshots)
 
             for snapshot in snapshots:
                 decisions = engine.evaluate(snapshot)
@@ -102,6 +104,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                         realized_pnl_today_usd=0.0,  # TODO: wire up settlement P&L once daily_loss_cap is enabled
                     )
 
+        logger.info("Poll cycle done: %s", live_counts or "no sports queried successfully")
         time.sleep(poll_interval_s)
 
 
