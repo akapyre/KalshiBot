@@ -76,7 +76,9 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                 snapshots = odds_provider.list_live_games(sport)
             except Exception:
                 logger.exception("Failed to fetch live games for sport=%s", sport)
+                time.sleep(2)  # back off before the next sport's request on a rate-limited plan
                 continue
+            time.sleep(1)  # space out per-sport requests so we don't burst a free-tier rate limit
 
             for snapshot in snapshots:
                 decisions = engine.evaluate(snapshot)
