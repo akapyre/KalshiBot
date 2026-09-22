@@ -6,15 +6,23 @@ subscription, matching your "same provider for both" choice. You can drop
 in a different vendor (SportsDataIO, OddsJam, ...) by writing a new class
 that implements OddsProvider -- nothing else in the bot needs to change.
 
-IMPORTANT: I have not run this against a live TheRundown API key (I don't
-have one), so the exact JSON field names below are my best read of their
-public docs, not verified against a live response. Before trusting this in
-dry-run, hit the endpoints with your key and confirm the field paths in
-`_parse_game` match what actually comes back -- fix on the spot if not.
+IMPORTANT: the field-name parsing in `_parse_game` below is still my best
+read of TheRundown's public docs, not verified against a live response --
+confirm it matches what your account actually returns and fix on the spot
+if not.
+
+Sport IDs (confirmed against a live GET /sports call on 2026-09-22):
+TheRundown has no single ID for "soccer" or "tennis" -- each league/tour is
+its own sport_id. NFL=2, ATP=38, WTA=39, EPL=11, La Liga(ESP1)=14,
+Bundesliga(GER1)=13, Serie A(ITA1)=15, Ligue 1(FRA1)=12. Soccer here is set
+to the "Big 5" European leagues per your choice -- each extra league ID is
+one more API request per poll cycle, which matters a lot on a free tier
+capped at 1,000 requests/month.
 """
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import requests
@@ -23,11 +31,10 @@ from .base import GameSnapshot, Sport
 
 API_BASE = "https://therundown-therundown-v1.p.rapidapi.com"
 
-_SPORT_IDS = {
-    # TheRundown sport IDs -- confirm against GET /sports for your account.
-    "nfl": 2,
-    "soccer": 20,   # soccer has many league-specific sub-ids; adjust as needed
-    "tennis": 21,
+_SPORT_IDS: dict[Sport, list[int]] = {
+    "nfl": [2],
+    "tennis": [38, 39],              # ATP, WTA
+    "soccer": [11, 14, 13, 15, 12],  # EPL, La Liga, Bundesliga, Serie A, Ligue 1
 }
 
 
@@ -43,24 +50,24 @@ class TheRundownProvider:
         }
 
     def list_live_games(self, sport: Sport) -> list[GameSnapshot]:
-        sport_id = _SPORT_IDS[sport]
-        resp = requests.get(
-            f"{API_BASE}/sports/{sport_id}/events",
-            headers=self._headers(),
-            timeout=10,
-        )
-        resp.raise_for_status()
-        events = resp.json().get("events", [])
         snapshots = []
-        for event in events:
-            snapshot = self._parse_game(sport, event)
-            if snapshot is None:
-                continue
-            if snapshot.pregame_favorite_odds is None and snapshot.game_id in self._pregame_cache:
-                pass  # filled below
-            if snapshot.game_id not in self._pregame_cache and not snapshot.is_live:
-                self._pregame_cache[snapshot.game_id] = snapshot.live_favorite_odds
-            snapshots.append(snapshot)
+        for i, sport_id in enumerate(_SPORT_IDS[sport]):
+            if i > 0:
+                time.sleep(0.5)  # avoid bursting a free-tier rate limit across sub-leagues
+            resp = requests.get(
+                f"{API_BASE}/sports/{sport_id}/events",
+                headers=self._headers(),
+                timeout=10,
+            )
+            resp.raise_for_status()
+            events = resp.json().get("events", [])
+            for event in events:
+                snapshot = self._parse_game(sport, event)
+                if snapshot is None:
+                    continue
+                if snapshot.game_id not in self._pregame_cache and not snapshot.is_live:
+                    self._pregame_cache[snapshot.game_id] = snapshot.live_favorite_odds
+                snapshots.append(snapshot)
         return [s for s in snapshots if s.is_live]
 
     def get_pregame_odds(self, sport: Sport, game_id: str) -> int | None:
