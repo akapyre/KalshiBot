@@ -7,6 +7,10 @@ import logging
 import os
 import time
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from .executor import Executor
 from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, KalshiCredentials
 from .matching import MarketMatcher
