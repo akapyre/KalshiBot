@@ -84,10 +84,13 @@ Run tests any time with `python3 -m pytest tests/ -v`.
    I picked the reading that seemed most consistent with the rest of the rule
    set, but you should check it against a few dry-run log lines before
    trusting it with money.
-2. **Verify the two unverified integrations** (`sportsgameodds.py` field
-   names and `LEAGUE_IDS`, `matching.py` ticker/title parsing) against real
-   API responses -- I built these from public docs, not a live account, so
-   the exact JSON shape is my best guess, not a tested fact.
+2. **`sportsgameodds.py`'s field parsing and NFL/soccer `LEAGUE_IDS` are
+   confirmed against real API responses** from a live account (2026-09-22) --
+   team names, scores, the `game`-period moneyline, and `bookOdds` are all
+   verified. `matching.py` (mapping a game to a Kalshi ticker) is still
+   unverified -- built from public docs only, not tested against a live
+   Kalshi market list. Tennis has no data source at all right now (see
+   `sportsgameodds.py`'s docstring) -- that rule is defined but inert.
 3. **Watch dry-run through a handful of live games first.** It runs the exact
    same rules engine and state machine as live mode -- it just doesn't submit
    the order -- so what you see in the logs is what would have happened.

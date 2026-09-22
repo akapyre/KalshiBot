@@ -2,28 +2,43 @@
 
 Replaces the TheRundown adapter -- TheRundown's RapidAPI resale listing
 returns placeholder (0.0001) odds values regardless of plan tier, so it
-can never feed the rules engine real numbers. SportsGameOdds was chosen
-instead because independent sources (not just their own marketing)
-confirm real, bookmaker-sourced odds, including on the free tier.
+could never feed the rules engine real numbers. SportsGameOdds gives real,
+bookmaker-sourced odds, confirmed against a live paid-tier response on
+2026-09-22.
 
-IMPORTANT -- two things are NOT yet verified against a live account and
-need a real API key + one real response to confirm:
+Field mapping confirmed against a real /v2/events response (see that date's
+debugging session, event mXCZTRJnbX8ib64z1h3D -- a finished Super Bowl LVIII
+game used purely to inspect the schema, not live data):
 
-1. `LEAGUE_IDS` below: "NFL" and "EPL" are confirmed correct from public
-   docs. The rest (La Liga, Bundesliga, Serie A, Ligue 1, ATP, WTA) are my
-   best guess at the naming convention and are UNCONFIRMED -- call
-   GET /v2/leagues once you have a key and check the real leagueID
-   strings, then fix this dict if any are wrong.
+- `teams.home/away.names.long` -- team name
+- `teams.home/away.score` -- current score
+- `odds` is a dict keyed by oddID strings shaped
+  {statID}-{statEntityID}-{periodID}-{betTypeID}-{sideID}. We want
+  periodID == "game" (full-game moneyline, not the 1st-quarter/2nd-half
+  sub-markets that also exist) and betTypeID == "ml".
+- Each odds entry's `bookOdds` field is the actual sportsbook-quoted
+  American-odds string (e.g. "-170") -- preferred over `fairOdds`, which is
+  a synthetic no-vig price, not what a bettor actually sees.
+- `status.live` / `status.completed` -- game state flags.
+- `status.currentPeriodID` (e.g. "4q", "2h") -- current quarter/half while
+  live; used to detect the NFL 4th-quarter rule and soccer halftime.
 
-2. `_parse_event`: SportsGameOdds uses a flexible key-value "odds" object
-   keyed by oddID strings shaped like
-   {statID}-{statEntityID}-{periodID}-{betTypeID}-{sideID}-{bookmakerID}
-   (moneyline = betTypeID "ml"), NOT fixed fields like TheRundown's
-   `lines.moneyline_home`. I have not seen a real response yet, so the
-   parsing below is a best-effort placeholder. Get one real /v2/events
-   response (for a live or upcoming NFL game) and send it back -- I'll
-   rewrite `_parse_event` against the actual field names in one pass
-   instead of guessing wrong repeatedly like the TheRundown adapter did.
+TENNIS IS NOT COVERED: confirmed via GET /v2/leagues on both free and paid
+tiers -- SportsGameOdds' sportID list is BASEBALL, BASKETBALL, FOOTBALL,
+HANDBALL, HOCKEY, MMA, SOCCER. No tennis at all. Per your call, the tennis
+rule in config/rules.yaml is left in place but will simply never fire,
+since main.py no longer polls for it.
+
+IMPORTANT DESIGN NOTE: we deliberately do NOT filter the /v2/events request
+to live-only. If we did, we'd never see a game in its pregame state and
+could never cache the pregame line your rules compare against. Instead we
+pull a window of events every cycle, cache the line for anything not yet
+live, and only return snapshots for games that ARE currently live (using
+the pregame line cached from an earlier, pre-kickoff poll of the same
+game). This means the bot needs to be running and polling *before* a
+game's kickoff to catch its pregame line -- if you start the bot mid-game,
+it has no pregame baseline for that game and its rules won't fire for it
+until the next game.
 """
 from __future__ import annotations
 
@@ -38,8 +53,8 @@ API_BASE = "https://api.sportsgameodds.com/v2"
 
 LEAGUE_IDS: dict[Sport, list[str]] = {
     "nfl": ["NFL"],
-    "tennis": ["ATP_TENNIS", "WTA_TENNIS"],           # UNCONFIRMED -- check /v2/leagues
-    "soccer": ["EPL", "LA_LIGA", "BUNDESLIGA", "SERIE_A", "LIGUE_1"],  # UNCONFIRMED except EPL
+    "soccer": ["EPL", "LA_LIGA", "BUNDESLIGA", "IT_SERIE_A", "FR_LIGUE_1"],
+    "tennis": [],  # not covered by this provider -- see module docstring
 }
 
 
@@ -52,21 +67,26 @@ class SportsGameOddsProvider:
         return {"x-api-key": self._api_key}
 
     def list_live_games(self, sport: Sport) -> list[GameSnapshot]:
-        league_ids = ",".join(LEAGUE_IDS[sport])
+        league_ids = LEAGUE_IDS.get(sport) or []
+        if not league_ids:
+            return []
+
+        snapshots = []
         resp = requests.get(
             f"{API_BASE}/events",
             headers=self._headers(),
-            params={"leagueID": league_ids, "live": "true"},
+            params={"leagueID": ",".join(league_ids), "limit": 25},
             timeout=10,
         )
         resp.raise_for_status()
         events = resp.json().get("data", [])
-        snapshots = []
         for event in events:
+            if event.get("type") != "match":
+                continue  # skip prop-only/novelty entries (e.g. Puppy Bowl)
             snapshot = self._parse_event(sport, event)
             if snapshot is None:
                 continue
-            if snapshot.game_id not in self._pregame_cache and not snapshot.is_live:
+            if not snapshot.is_live:
                 self._pregame_cache[snapshot.game_id] = snapshot.live_favorite_odds
             snapshots.append(snapshot)
         return [s for s in snapshots if s.is_live]
@@ -75,30 +95,24 @@ class SportsGameOddsProvider:
         return self._pregame_cache.get(game_id)
 
     def _parse_event(self, sport: Sport, event: dict[str, Any]) -> GameSnapshot | None:
-        # PLACEHOLDER -- rewrite once we have a real response. Current best
-        # guess at the shape based on public docs (team info + an "odds"
-        # dict keyed by oddID strings containing betTypeID "ml").
         try:
             game_id = event["eventID"]
-            teams = event.get("teams", {})
-            home = teams.get("home", {})
-            away = teams.get("away", {})
-            home_name = home.get("name") or home.get("names", {}).get("long", "")
-            away_name = away.get("name") or away.get("names", {}).get("long", "")
+            teams = event["teams"]
+            home = teams["home"]
+            away = teams["away"]
+            home_name = home["names"]["long"]
+            away_name = away["names"]["long"]
 
-            odds = event.get("odds", {})
             home_ml = away_ml = None
-            for odd_id, odd in odds.items():
-                parts = odd_id.split("-")
-                if len(parts) < 5 or parts[3] != "ml":
+            for odd in event.get("odds", {}).values():
+                if odd.get("periodID") != "game" or odd.get("betTypeID") != "ml":
                     continue
-                side = parts[4]
-                price = odd.get("odds") or odd.get("americanOdds") or odd.get("price")
+                price = odd.get("bookOdds") or odd.get("fairOdds")
                 if price is None:
                     continue
-                if side == "home":
+                if odd.get("sideID") == "home":
                     home_ml = int(price)
-                elif side == "away":
+                elif odd.get("sideID") == "away":
                     away_ml = int(price)
 
             if home_ml is None or away_ml is None:
@@ -109,13 +123,10 @@ class SportsGameOddsProvider:
             live_favorite_odds = home_ml if favorite_is_home else away_ml
 
             status = event.get("status", {})
-            results = event.get("results", {})
-            period = status.get("period") or status.get("periodID")
-            home_score = results.get("home", {}).get("points")
-            away_score = results.get("away", {}).get("points")
-            past_halftime = None
-            if sport == "soccer" and period is not None:
-                past_halftime = str(period) not in ("1", "1H", "first_half")
+            current_period = status.get("currentPeriodID", "")
+            period = _parse_period_number(current_period)
+            started_periods = status.get("periods", {}).get("started", [])
+            past_halftime = "2h" in started_periods if sport == "soccer" else None
 
             pregame = self._pregame_cache.get(game_id)
 
@@ -127,13 +138,20 @@ class SportsGameOddsProvider:
                 favorite_team=favorite_team,
                 pregame_favorite_odds=pregame if pregame is not None else live_favorite_odds,
                 live_favorite_odds=live_favorite_odds,
-                start_time_utc=event.get("status", {}).get("startsAt", ""),
-                is_live=status.get("live", False) or status.get("started", False),
-                is_final=status.get("completed", False) or status.get("ended", False),
-                period=int(period) if isinstance(period, (int, str)) and str(period).isdigit() else None,
-                home_score=home_score,
-                away_score=away_score,
+                start_time_utc=status.get("startsAt", ""),
+                is_live=bool(status.get("live", False)),
+                is_final=bool(status.get("completed", False) or status.get("finalized", False)),
+                period=period,
+                home_score=home.get("score"),
+                away_score=away.get("score"),
                 past_halftime=past_halftime,
             )
         except (KeyError, ValueError, TypeError):
             return None
+
+
+def _parse_period_number(period_id: str) -> int | None:
+    """"1q" -> 1, "4q" -> 4, "2h" -> 2; "ot"/"game"/"reg"/"" -> None."""
+    if period_id and period_id[0].isdigit():
+        return int(period_id[0])
+    return None
