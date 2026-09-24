@@ -43,6 +43,7 @@ until the next game.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -72,11 +73,26 @@ class SportsGameOddsProvider:
         if not league_ids:
             return []
 
+        # Without an explicit date window, /v2/events does not default to
+        # "now" -- every unfiltered pull we did while building this adapter
+        # came back with events from 2024. Bound the query to "anything that
+        # started recently enough to still plausibly be live" through
+        # "anything starting soon enough to be worth caching a pregame line
+        # for" instead.
+        now = datetime.now(timezone.utc)
+        starts_after = (now - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        starts_before = (now + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         snapshots = []
         resp = requests.get(
             f"{API_BASE}/events",
             headers=self._headers(),
-            params={"leagueID": ",".join(league_ids), "limit": 25},
+            params={
+                "leagueID": ",".join(league_ids),
+                "limit": 25,
+                "startsAfter": starts_after,
+                "startsBefore": starts_before,
+            },
             timeout=10,
         )
         resp.raise_for_status()
