@@ -49,6 +49,7 @@ from typing import Any
 import requests
 
 from .base import GameSnapshot, Sport
+from ..state import PregameOddsStore
 
 API_BASE = "https://api.sportsgameodds.com/v2"
 
@@ -61,9 +62,9 @@ LEAGUE_IDS: dict[Sport, list[str]] = {
 
 
 class SportsGameOddsProvider:
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, pregame_store: PregameOddsStore | None = None):
         self._api_key = api_key or os.environ["SPORTSGAMEODDS_API_KEY"]
-        self._pregame_cache: dict[str, int] = {}
+        self._pregame_store = pregame_store or PregameOddsStore()
 
     def _headers(self) -> dict[str, str]:
         return {"x-api-key": self._api_key}
@@ -104,12 +105,12 @@ class SportsGameOddsProvider:
             if snapshot is None:
                 continue
             if not snapshot.is_live:
-                self._pregame_cache[snapshot.game_id] = snapshot.live_favorite_odds
+                self._pregame_store.set(snapshot.game_id, snapshot.live_favorite_odds)
             snapshots.append(snapshot)
         return [s for s in snapshots if s.is_live]
 
     def get_pregame_odds(self, sport: Sport, game_id: str) -> int | None:
-        return self._pregame_cache.get(game_id)
+        return self._pregame_store.get(game_id)
 
     def _parse_event(self, sport: Sport, event: dict[str, Any]) -> GameSnapshot | None:
         try:
@@ -145,7 +146,7 @@ class SportsGameOddsProvider:
             started_periods = status.get("periods", {}).get("started", [])
             past_halftime = "2h" in started_periods if sport == "soccer" else None
 
-            pregame = self._pregame_cache.get(game_id)
+            pregame = self._pregame_store.get(game_id)
 
             return GameSnapshot(
                 game_id=game_id,
