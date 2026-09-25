@@ -42,6 +42,7 @@ until the next game.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -50,6 +51,8 @@ import requests
 
 from .base import GameSnapshot, Sport
 from ..state import PregameOddsStore
+
+logger = logging.getLogger("kalshibot.odds_providers.sportsgameodds")
 
 API_BASE = "https://api.sportsgameodds.com/v2"
 
@@ -98,6 +101,7 @@ class SportsGameOddsProvider:
         )
         resp.raise_for_status()
         events = resp.json().get("data", [])
+        logger.info("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
         for event in events:
             if event.get("type") != "match":
                 continue  # skip prop-only/novelty entries (e.g. Puppy Bowl)
@@ -134,6 +138,11 @@ class SportsGameOddsProvider:
                     away_ml = int(price)
 
             if home_ml is None or away_ml is None:
+                logger.warning(
+                    "No game-moneyline odds for %s @ %s (eventID=%s) -- dropping "
+                    "this game from live_games this cycle",
+                    away_name, home_name, game_id,
+                )
                 return None
 
             favorite_is_home = home_ml < away_ml
@@ -165,6 +174,10 @@ class SportsGameOddsProvider:
                 past_halftime=past_halftime,
             )
         except (KeyError, ValueError, TypeError):
+            logger.warning(
+                "Failed to parse event (eventID=%s) -- dropping from live_games "
+                "this cycle", event.get("eventID", "?"), exc_info=True,
+            )
             return None
 
 
