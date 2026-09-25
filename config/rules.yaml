@@ -37,10 +37,13 @@
 #      number decreasing. If you actually meant "live odds < 100, but
 #      invalidate if it ever went past +200 first," tell me and I'll switch
 #      it -- this is a genuine coin-flip read, not a confident one.
-#   8. NFL "-150 or higher to start" (nfl_moderate_favorite) is bounded to a
-#      band, [-249, -150], same as soccer_moderate_favorite -- so it doesn't
-#      overlap nfl_favorite_fade's -250-or-steeper rule. A game can only ever
-#      match one of the two NFL rules based on its actual pregame price.
+#   8. NFL "-150 or higher to start" (nfl_moderate_favorite) is open-ended
+#      (-150 or steeper, no ceiling) per your explicit call -- this DELIBERATELY
+#      overlaps nfl_favorite_fade's -250-or-steeper range. A steep favorite
+#      (-250 or worse) that drifts into +100-150 can trigger BOTH rules for
+#      the same game -- two separate $15 wagers, on purpose, not a bug. See
+#      the longer note on nfl_moderate_favorite itself for the 2-per-game
+#      cap this creates and how it interacts with nfl_fourth_quarter_reentry.
 #      "during that period" (for the +100/+150 trigger) has no quarter/time
 #      gate in this rule -- I read it as "once, whenever live odds land in
 #      that band," not a specific game window. Tell me if you meant something
@@ -116,7 +119,7 @@ rules:
     trigger:
       min_odds: -115            # odds >= -115
     invalidate_if: {}
-    max_bets_per_game: 1
+    max_bets_per_game: 2       # raised from 1 -- see nfl_moderate_favorite below
 
   - id: nfl_fourth_quarter_reentry
     sport: nfl
@@ -138,18 +141,27 @@ rules:
   - id: nfl_moderate_favorite
     sport: nfl
     description: >
-      Pregame favorite in the -150 to -249 band (bounded so it doesn't
-      overlap nfl_favorite_fade's -250-or-steeper rule). Wager once when
-      live price is between +100 and +150.
+      Pregame favorite at -150 or steeper -- open-ended, deliberately
+      overlapping nfl_favorite_fade's -250-or-steeper range per your call.
+      Wager once when live price is between +100 and +150. On a favorite
+      that's -250 or steeper, this can fire ALONGSIDE nfl_favorite_fade for
+      the same game (two separate $15 wagers) if both trigger bands are
+      met -- that's intentional now, not a bug. Each rule's
+      max_bets_per_game is 2 so neither blocks the other from firing
+      whichever order they happen in. Net effect: at most 2 total NFL
+      wagers per game across nfl_favorite_fade + nfl_moderate_favorite --
+      and if those two both already fired, nfl_fourth_quarter_reentry's
+      "3rd" wager would then be blocked by that same 2-per-game ceiling.
+      That 3-way interaction wasn't explicitly discussed -- flag it if you
+      want the 4th-quarter re-entry to always be allowed regardless.
     pregame:
       side: favorite
-      min_odds: -249
       max_odds: -150
     trigger:
       min_odds: 100
       max_odds: 150
     invalidate_if: {}
-    max_bets_per_game: 1
+    max_bets_per_game: 2
 
   - id: mlb_favorite_fade
     sport: mlb

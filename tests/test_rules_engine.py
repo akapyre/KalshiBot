@@ -116,19 +116,29 @@ def test_nfl_moderate_favorite_skips_out_of_band(engine):
     assert eng.evaluate(snap) == []
 
 
-def test_nfl_moderate_favorite_does_not_apply_to_steep_favorite(engine):
-    eng, _ = engine
-    # A -260 pregame favorite belongs to nfl_favorite_fade's band, not this
-    # one -- confirms the two NFL rules don't overlap on the same game.
+def test_nfl_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
+    eng, store = engine
+    # Per an explicit user call: a steep (-250+) favorite that drifts into
+    # the +100-150 band fires BOTH NFL rules for the same game -- two
+    # separate wagers, on purpose. Confirm both fire in the same cycle...
     snap = make_snapshot(sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=125)
     decisions = eng.evaluate(snap)
-    assert [d.rule_id for d in decisions] == ["nfl_favorite_fade"]
+    assert {d.rule_id for d in decisions} == {"nfl_favorite_fade", "nfl_moderate_favorite"}
+
+    # ...and confirm neither blocks the other across cycles either (each
+    # rule's own max_bets_per_game=2 accounts for the other's bet).
+    store.record("g1", "nfl_favorite_fade")
+    decisions_next_cycle = eng.evaluate(snap)
+    assert [d.rule_id for d in decisions_next_cycle] == ["nfl_moderate_favorite"]
 
 
 def test_nfl_fourth_quarter_reentry_requires_prior_fire(engine):
     eng, store = engine
+    # live=160 is deliberately outside nfl_moderate_favorite's 100-150 band,
+    # so this isolates the reentry-requires-prior-fire behavior without
+    # incidentally also triggering the (separately tested) NFL rule overlap.
     snap_q4 = make_snapshot(
-        sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=130, period=4
+        sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=160, period=4
     )
     # The reentry band (110-165) sits inside nfl_favorite_fade's own trigger
     # (odds >= -115), so on a game where nfl_favorite_fade hasn't fired yet,
