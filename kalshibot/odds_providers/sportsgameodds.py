@@ -61,6 +61,7 @@ LEAGUE_IDS: dict[Sport, list[str]] = {
     "soccer": ["EPL", "LA_LIGA", "BUNDESLIGA", "IT_SERIE_A", "FR_LIGUE_1"],
     "tennis": [],  # not covered by this provider -- see module docstring
     "mlb": ["MLB"],  # confirmed present in GET /v2/leagues
+    "cfb": ["NCAAF"],  # confirmed present in GET /v2/leagues (early exploration, not the MLB/NFL session)
 }
 
 

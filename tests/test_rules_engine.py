@@ -208,6 +208,35 @@ def test_mlb_favorite_fade_skips_out_of_band(engine):
     assert eng.evaluate(snap) == []
 
 
+def test_cfb_favorite_fade_triggers(engine):
+    eng, _ = engine
+    snap = make_snapshot(sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=-115)
+    decisions = eng.evaluate(snap)
+    assert [d.rule_id for d in decisions] == ["cfb_favorite_fade"]
+
+
+def test_cfb_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
+    eng, store = engine
+    # Mirrors the NFL overlap behavior: a steep CFB favorite can fire both
+    # cfb_favorite_fade and cfb_moderate_favorite for the same game.
+    snap = make_snapshot(sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=125)
+    decisions = eng.evaluate(snap)
+    assert {d.rule_id for d in decisions} == {"cfb_favorite_fade", "cfb_moderate_favorite"}
+
+
+def test_cfb_fourth_quarter_reentry_requires_prior_fire(engine):
+    eng, store = engine
+    snap_q4 = make_snapshot(
+        sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=160, period=4
+    )
+    first_pass = eng.evaluate(snap_q4)
+    assert [d.rule_id for d in first_pass] == ["cfb_favorite_fade"]
+
+    store.record("g1", "cfb_favorite_fade")
+    decisions = eng.evaluate(snap_q4)
+    assert [d.rule_id for d in decisions] == ["cfb_fourth_quarter_reentry"]
+
+
 def test_no_other_rule_fires_after_one_has_for_same_game(engine):
     eng, store = engine
     # soccer_heavy_favorite fires and is recorded.

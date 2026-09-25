@@ -157,6 +157,53 @@ rules:
     invalidate_if: {}
     max_bets_per_game: 3
 
+  - id: cfb_favorite_fade
+    sport: cfb
+    description: >
+      Same rule as nfl_favorite_fade, applied to college football. Pregame
+      favorite at -250 or steeper. Wager when live price has faded to -115
+      or looser.
+    pregame:
+      side: favorite
+      max_odds: -250
+    trigger:
+      min_odds: -115
+    invalidate_if: {}
+    max_bets_per_game: 3       # mirrors the NFL rules' stacking -- see nfl_moderate_favorite
+
+  - id: cfb_fourth_quarter_reentry
+    sport: cfb
+    description: >
+      Same rule as nfl_fourth_quarter_reentry, applied to college football.
+      Extra wager on the same game as cfb_favorite_fade, only in the 4th
+      quarter, only if live price is between +110 and +165.
+    requires_prior_rule: cfb_favorite_fade
+    pregame:
+      side: favorite
+      max_odds: -250
+    trigger:
+      min_odds: 110
+      max_odds: 165
+      quarter: 4
+    invalidate_if: {}
+    max_bets_per_game: 3
+
+  - id: cfb_moderate_favorite
+    sport: cfb
+    description: >
+      Same rule as nfl_moderate_favorite, applied to college football.
+      Pregame favorite at -150 or steeper (open-ended, deliberately
+      overlapping cfb_favorite_fade). Wager once when live price is
+      between +100 and +150.
+    pregame:
+      side: favorite
+      max_odds: -150
+    trigger:
+      min_odds: 100
+      max_odds: 150
+    invalidate_if: {}
+    max_bets_per_game: 3
+
   - id: mlb_favorite_fade
     sport: mlb
     description: >
