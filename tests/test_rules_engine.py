@@ -126,10 +126,23 @@ def test_nfl_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
     assert {d.rule_id for d in decisions} == {"nfl_favorite_fade", "nfl_moderate_favorite"}
 
     # ...and confirm neither blocks the other across cycles either (each
-    # rule's own max_bets_per_game=2 accounts for the other's bet).
+    # rule's own max_bets_per_game=3 accounts for the other two NFL rules).
     store.record("g1", "nfl_favorite_fade")
     decisions_next_cycle = eng.evaluate(snap)
     assert [d.rule_id for d in decisions_next_cycle] == ["nfl_moderate_favorite"]
+
+
+def test_nfl_all_three_rules_can_fire_on_one_steep_favorite_game(engine):
+    eng, store = engine
+    # Confirmed intentional: a steep favorite can rack up all three NFL
+    # wagers across a game -- fade + moderate early, reentry in the 4th.
+    store.record("g1", "nfl_favorite_fade")
+    store.record("g1", "nfl_moderate_favorite")
+    snap_q4 = make_snapshot(
+        sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=130, period=4
+    )
+    decisions = eng.evaluate(snap_q4)
+    assert [d.rule_id for d in decisions] == ["nfl_fourth_quarter_reentry"]
 
 
 def test_nfl_fourth_quarter_reentry_requires_prior_fire(engine):

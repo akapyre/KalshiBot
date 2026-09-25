@@ -40,14 +40,13 @@
 #   8. NFL "-150 or higher to start" (nfl_moderate_favorite) is open-ended
 #      (-150 or steeper, no ceiling) per your explicit call -- this DELIBERATELY
 #      overlaps nfl_favorite_fade's -250-or-steeper range. A steep favorite
-#      (-250 or worse) that drifts into +100-150 can trigger BOTH rules for
-#      the same game -- two separate $15 wagers, on purpose, not a bug. See
-#      the longer note on nfl_moderate_favorite itself for the 2-per-game
-#      cap this creates and how it interacts with nfl_fourth_quarter_reentry.
-#      "during that period" (for the +100/+150 trigger) has no quarter/time
-#      gate in this rule -- I read it as "once, whenever live odds land in
-#      that band," not a specific game window. Tell me if you meant something
-#      more specific by "that period."
+#      (-250 or worse) can trigger nfl_favorite_fade, nfl_moderate_favorite,
+#      AND (in the 4th quarter) nfl_fourth_quarter_reentry all on the same
+#      game -- up to three separate $15 wagers -- confirmed intentional, not
+#      a bug. "during that period" (for the +100/+150 trigger) has no
+#      quarter/time gate in this rule -- read as "once, whenever live odds
+#      land in that band," not a specific game window. Tell me if you meant
+#      something more specific by "that period."
 #
 # STAKE / RISK: flat $15 per wager (config/risk.yaml). No daily loss cap and
 # no max concurrent positions are enforced right now, per your instruction --
@@ -119,14 +118,13 @@ rules:
     trigger:
       min_odds: -115            # odds >= -115
     invalidate_if: {}
-    max_bets_per_game: 2       # raised from 1 -- see nfl_moderate_favorite below
+    max_bets_per_game: 3       # so it never blocks nfl_moderate_favorite or nfl_fourth_quarter_reentry
 
   - id: nfl_fourth_quarter_reentry
     sport: nfl
     description: >
-      SECOND wager on the same game as nfl_favorite_fade, only in the 4th
-      quarter, only if live price is between +110 and +165. This is the sole
-      exception to the "no multi-bet" rule.
+      Extra wager on the same game as nfl_favorite_fade, only in the 4th
+      quarter, only if live price is between +110 and +165.
     requires_prior_rule: nfl_favorite_fade
     pregame:
       side: favorite
@@ -136,7 +134,7 @@ rules:
       max_odds: 165
       quarter: 4
     invalidate_if: {}
-    max_bets_per_game: 2       # combined with nfl_favorite_fade's 1st bet
+    max_bets_per_game: 3       # so it never blocks the other two NFL rules
 
   - id: nfl_moderate_favorite
     sport: nfl
@@ -144,16 +142,12 @@ rules:
       Pregame favorite at -150 or steeper -- open-ended, deliberately
       overlapping nfl_favorite_fade's -250-or-steeper range per your call.
       Wager once when live price is between +100 and +150. On a favorite
-      that's -250 or steeper, this can fire ALONGSIDE nfl_favorite_fade for
-      the same game (two separate $15 wagers) if both trigger bands are
-      met -- that's intentional now, not a bug. Each rule's
-      max_bets_per_game is 2 so neither blocks the other from firing
-      whichever order they happen in. Net effect: at most 2 total NFL
-      wagers per game across nfl_favorite_fade + nfl_moderate_favorite --
-      and if those two both already fired, nfl_fourth_quarter_reentry's
-      "3rd" wager would then be blocked by that same 2-per-game ceiling.
-      That 3-way interaction wasn't explicitly discussed -- flag it if you
-      want the 4th-quarter re-entry to always be allowed regardless.
+      that's -250 or steeper, this can fire ALONGSIDE nfl_favorite_fade
+      (and, later in the game, nfl_fourth_quarter_reentry too) for the same
+      game -- up to 3 separate $15 wagers on one NFL game in the specific
+      case where a steep favorite hits all three conditions. Confirmed
+      intentional -- all three NFL rules' max_bets_per_game is 3 so none of
+      them block each other, whatever order they fire in.
     pregame:
       side: favorite
       max_odds: -150
@@ -161,7 +155,7 @@ rules:
       min_odds: 100
       max_odds: 150
     invalidate_if: {}
-    max_bets_per_game: 2
+    max_bets_per_game: 3
 
   - id: mlb_favorite_fade
     sport: mlb
