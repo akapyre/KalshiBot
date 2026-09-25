@@ -37,6 +37,14 @@
 #      number decreasing. If you actually meant "live odds < 100, but
 #      invalidate if it ever went past +200 first," tell me and I'll switch
 #      it -- this is a genuine coin-flip read, not a confident one.
+#   8. NFL "-150 or higher to start" (nfl_moderate_favorite) is bounded to a
+#      band, [-249, -150], same as soccer_moderate_favorite -- so it doesn't
+#      overlap nfl_favorite_fade's -250-or-steeper rule. A game can only ever
+#      match one of the two NFL rules based on its actual pregame price.
+#      "during that period" (for the +100/+150 trigger) has no quarter/time
+#      gate in this rule -- I read it as "once, whenever live odds land in
+#      that band," not a specific game window. Tell me if you meant something
+#      more specific by "that period."
 #
 # STAKE / RISK: flat $15 per wager (config/risk.yaml). No daily loss cap and
 # no max concurrent positions are enforced right now, per your instruction --
@@ -126,6 +134,22 @@ rules:
       quarter: 4
     invalidate_if: {}
     max_bets_per_game: 2       # combined with nfl_favorite_fade's 1st bet
+
+  - id: nfl_moderate_favorite
+    sport: nfl
+    description: >
+      Pregame favorite in the -150 to -249 band (bounded so it doesn't
+      overlap nfl_favorite_fade's -250-or-steeper rule). Wager once when
+      live price is between +100 and +150.
+    pregame:
+      side: favorite
+      min_odds: -249
+      max_odds: -150
+    trigger:
+      min_odds: 100
+      max_odds: 150
+    invalidate_if: {}
+    max_bets_per_game: 1
 
   - id: mlb_favorite_fade
     sport: mlb

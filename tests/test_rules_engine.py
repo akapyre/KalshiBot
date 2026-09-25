@@ -101,6 +101,30 @@ def test_nfl_favorite_fade_triggers(engine):
     assert [d.rule_id for d in decisions] == ["nfl_favorite_fade"]
 
 
+def test_nfl_moderate_favorite_triggers_for_lighter_pregame_favorite(engine):
+    eng, _ = engine
+    # This is the exact scenario that surfaced the gap: a -220 pregame
+    # favorite doesn't meet nfl_favorite_fade's -250-or-steeper bar.
+    snap = make_snapshot(sport="nfl", pregame_favorite_odds=-220, live_favorite_odds=125)
+    decisions = eng.evaluate(snap)
+    assert [d.rule_id for d in decisions] == ["nfl_moderate_favorite"]
+
+
+def test_nfl_moderate_favorite_skips_out_of_band(engine):
+    eng, _ = engine
+    snap = make_snapshot(sport="nfl", pregame_favorite_odds=-220, live_favorite_odds=151)
+    assert eng.evaluate(snap) == []
+
+
+def test_nfl_moderate_favorite_does_not_apply_to_steep_favorite(engine):
+    eng, _ = engine
+    # A -260 pregame favorite belongs to nfl_favorite_fade's band, not this
+    # one -- confirms the two NFL rules don't overlap on the same game.
+    snap = make_snapshot(sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=125)
+    decisions = eng.evaluate(snap)
+    assert [d.rule_id for d in decisions] == ["nfl_favorite_fade"]
+
+
 def test_nfl_fourth_quarter_reentry_requires_prior_fire(engine):
     eng, store = engine
     snap_q4 = make_snapshot(
