@@ -102,7 +102,7 @@ class SportsGameOddsProvider:
         )
         resp.raise_for_status()
         events = resp.json().get("data", [])
-        logger.info("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
+        logger.debug("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
         for event in events:
             if event.get("type") != "match":
                 continue  # skip prop-only/novelty entries (e.g. Puppy Bowl)
