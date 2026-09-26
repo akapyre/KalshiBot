@@ -69,6 +69,10 @@ class SportsGameOddsProvider:
     def __init__(self, api_key: str | None = None, pregame_store: PregameOddsStore | None = None):
         self._api_key = api_key or os.environ["SPORTSGAMEODDS_API_KEY"]
         self._pregame_store = pregame_store or PregameOddsStore()
+        # Some games (e.g. small-college matchups with no real betting
+        # market) will NEVER get a moneyline -- warn about each one once,
+        # not every single poll cycle forever.
+        self._warned_no_odds: set[str] = set()
 
     def _headers(self) -> dict[str, str]:
         return {"x-api-key": self._api_key}
@@ -139,11 +143,14 @@ class SportsGameOddsProvider:
                     away_ml = int(price)
 
             if home_ml is None or away_ml is None:
-                logger.warning(
-                    "No game-moneyline odds for %s @ %s (eventID=%s) -- dropping "
-                    "this game from live_games this cycle",
-                    away_name, home_name, game_id,
-                )
+                if game_id not in self._warned_no_odds:
+                    self._warned_no_odds.add(game_id)
+                    logger.warning(
+                        "No game-moneyline odds for %s @ %s (eventID=%s) -- dropping "
+                        "this game from live_games (won't repeat this warning for "
+                        "the same game)",
+                        away_name, home_name, game_id,
+                    )
                 return None
 
             favorite_is_home = home_ml < away_ml
