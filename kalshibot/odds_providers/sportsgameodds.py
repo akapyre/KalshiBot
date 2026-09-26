@@ -39,6 +39,19 @@ game). This means the bot needs to be running and polling *before* a
 game's kickoff to catch its pregame line -- if you start the bot mid-game,
 it has no pregame baseline for that game and its rules won't fire for it
 until the next game.
+
+REQUEST `limit` MATTERS A LOT: confirmed 2026-09-26 that a busy CFB
+Saturday has 100+ total events in the startsAfter/startsBefore window
+across all divisions, and the API's ordering does NOT put currently-live
+games first -- every live: true game that day was past position 79. At
+the old limit of 25, the bot was structurally incapable of ever seeing a
+live CFB game, no matter what was actually happening; it silently looked
+fine (0 live games, no errors) while being blind to all of them. Raised
+to 100, which covered that day's slate, but there's no guarantee 100 is
+always enough on the busiest days -- if this happens again, the real fix
+is paginating via the response's `nextCursor` rather than raising this
+number indefinitely (each unit of `limit` costs against the monthly
+object quota on every poll cycle, for every sport, so this isn't free).
 """
 from __future__ import annotations
 
@@ -98,7 +111,7 @@ class SportsGameOddsProvider:
             headers=self._headers(),
             params={
                 "leagueID": ",".join(league_ids),
-                "limit": 25,
+                "limit": 100,
                 "startsAfter": starts_after,
                 "startsBefore": starts_before,
             },
