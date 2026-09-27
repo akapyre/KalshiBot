@@ -24,11 +24,14 @@ Google News RSS + PubMed  ->  drop items already posted about  ->  Claude writes
   and the creative pillars. **Edit it to make the posts sound like you.**
 - `data/used_items.json` records which stories and titles have been used,
   so the bot doesn't repeat itself.
-- Built-in guardrails: no dosing or protocols, no vendor or sourcing talk,
-  clear evidence levels ("rats" vs. "humans"), correct FDA status, sources
-  only from the fetched news (any other links are removed), and an
-  "Educational only, not medical advice" line. These keep the community
-  safer and help keep your group within Skool's rules.
+- `style_examples/` holds your real posts. The bot copies their style
+  (tone, length, formatting, emoji, how posts open and close). Add more
+  examples any time; see `style_examples/README.md`.
+- Content rules: research posts can cover the literature in detail,
+  including species, how a compound was given in the study, and the
+  results. The bot won't write personal dosing guides or mention vendors.
+  It only links to stories it actually fetched and removes any other link.
+  It doesn't add disclaimers or refer to the group in broad terms.
 
 ## Setup (runs free on GitHub Actions)
 

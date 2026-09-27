@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+from pathlib import Path
 
 import anthropic
 
@@ -13,25 +14,42 @@ from .news import NewsItem
 log = logging.getLogger(__name__)
 
 GUARDRAILS = """\
-Non-negotiable content rules (these protect the community and the owner):
-- Educational content only. Never give dosing, cycling, stacking, reconstitution
-  or injection instructions, and never recommend where to buy peptides or name vendors.
-- Be honest about evidence level. Say clearly when something is only shown in
-  animals/cells, is a small or early human trial, or is anecdote.
-- Be accurate about regulatory status (e.g. FDA-approved drug vs. research
-  chemical / not approved for human use) when it matters to the topic.
+Content rules:
+- Discussing the research literature is encouraged. For research compounds you
+  may describe how studies were run -- species (e.g. rats/mice), how and how much
+  the compound was administered in that study, duration, and the results
+  reported -- always framed as "what the study did and found".
+- Do not turn that into a how-to for readers: no personal dosing, cycling,
+  stacking, reconstitution or injection guides, and no vendor or sourcing talk.
+- Keep evidence levels clear: say when a result is from rodents, cells, a small
+  human trial, or anecdote.
 - Only cite sources from the provided list, by exact URL. Never invent studies,
-  numbers, quotes or headlines. If a headline alone doesn't tell you the result,
-  don't guess it -- frame the post around the question instead.
-- Encourage members to work with a qualified clinician for anything medical.
-- End the post body with a short line: "Educational only, not medical advice."
+  numbers, quotes or headlines. If a headline alone doesn't tell you the
+  result, don't guess it -- frame the post around the question instead.
+- Don't add "educational only" / "not medical advice" disclaimers; readers
+  already understand that.
+- Don't refer to the community as a group in broad terms (no "our community",
+  "this group", "everyone in here", community name shout-outs). Just talk to
+  the reader the way the example posts do.
 """
+
+STYLE_DIR = Path(__file__).resolve().parent.parent / "style_examples"
+
+
+def load_style_examples(style_dir: Path = STYLE_DIR) -> list[str]:
+    """Every .md/.txt file in style_examples/ (except README.md) is one example post."""
+    if not style_dir.exists():
+        return []
+    files = sorted(f for f in style_dir.iterdir()
+                   if f.suffix in (".md", ".txt") and f.name.lower() != "readme.md")
+    return [t for t in (f.read_text(encoding="utf-8").strip() for f in files) if t]
+
 
 POST_SCHEMA = {
     "type": "object",
     "properties": {
-        "title": {"type": "string", "description": "Skool post title, under 80 characters, scroll-stopping."},
-        "body": {"type": "string", "description": "Post body in plain text with line breaks. 120-300 words. Ends with a question or call to comment."},
+        "title": {"type": "string", "description": "Post title, written the way the example posts title things."},
+        "body": {"type": "string", "description": "Post body with line breaks. Match the example posts' length, structure, formatting and sign-off."},
         "poll_options": {"type": "array", "items": {"type": "string"},
                          "description": "3-5 poll options if this post should be a poll, else empty."},
         "image_idea": {"type": "string", "description": "One-line idea for a cover image or graphic to attach."},
@@ -50,12 +68,26 @@ def pick_pillar(pillars: list[dict], day: dt.date) -> dict:
     return pillars[day.toordinal() % len(pillars)]
 
 
-def build_system(cfg: dict) -> str:
+def build_system(cfg: dict, examples: list[str] | None = None) -> str:
     c = cfg["community"]
-    return (
-        f"You write daily posts for the Skool community \"{c['name']}\".\n\n"
-        f"Audience: {c['audience'].strip()}\n\nVoice: {c['voice'].strip()}\n\n{GUARDRAILS}"
-    )
+    examples = load_style_examples() if examples is None else examples
+    parts = [
+        "You write daily posts for a peptide and fitness Skool group, as its owner.",
+        f"Audience: {c['audience'].strip()}",
+        f"Voice: {c['voice'].strip()}",
+        GUARDRAILS,
+    ]
+    if examples:
+        shown = "\n\n".join(f"<example_post>\n{e}\n</example_post>" for e in examples)
+        parts.append(
+            "Below are real posts written by the owner. Mimic their style as closely as "
+            "possible: tone, sentence length, how posts open and close, paragraphing, "
+            "formatting, emoji and punctuation habits, slang, and typical length. The "
+            "posts you write should be indistinguishable from these. Copy the style, "
+            "not the topics. Where these examples and the Voice note above disagree, "
+            "follow the examples.\n\n" + shown
+        )
+    return "\n\n".join(parts)
 
 
 def build_request(slot_type: str, items: list[NewsItem], cfg: dict, day: dt.date,

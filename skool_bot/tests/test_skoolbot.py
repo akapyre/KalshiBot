@@ -72,7 +72,7 @@ def test_pillar_rotates_daily():
 
 def test_write_post_parses_structured_output():
     items = news.parse_pubmed_summary(PUBMED)
-    payload = ('{"title": "Keep your gains on GLP-1s", "body": "Body. Educational only, not medical advice.",'
+    payload = ('{"title": "Keep your gains on GLP-1s", "body": "Body.",'
                ' "poll_options": [], "image_idea": "barbell", "sources": [{"title": "x", "url": "%s"}],'
                ' "used_item_ids": ["pmid:123"]}' % items[0].url)
     captured = {}
@@ -88,3 +88,14 @@ def test_write_post_parses_structured_output():
     assert captured["output_config"]["format"]["type"] == "json_schema"
     md = writer.to_markdown(post, "morning", dt.date(2026, 9, 27))
     assert "# Keep your gains on GLP-1s" in md and "**Sources:**" in md
+
+
+def test_style_examples_go_into_system_prompt(tmp_path):
+    (tmp_path / "README.md").write_text("instructions, not a post")
+    (tmp_path / "01.md").write_text("yo. BPC in rats was wild")
+    examples = writer.load_style_examples(tmp_path)
+    assert examples == ["yo. BPC in rats was wild"]
+    system = writer.build_system(CFG, examples)
+    assert "<example_post>\nyo. BPC in rats was wild\n</example_post>" in system
+    assert CFG["community"]["name"] not in system
+    assert "End the post body with" not in system

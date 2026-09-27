@@ -1,11 +1,12 @@
 # Skool post bot config -- edit freely, no code changes needed.
 
 community:
-  name: "Your Peptide Community"          # shown to the model so posts sound like they belong to you
+  name: "Your Peptide Community"          # for your reference only; never written into posts
   audience: >
     Gym-goers and fitness-focused people who are curious about peptides,
     GLP-1s, recovery, body composition and longevity. Mix of beginners and
     people who already follow the research closely.
+  # Rough voice note. Your real posts in style_examples/ take priority over this.
   voice: >
     Direct, energetic, no fluff. Talks like a coach who reads the studies.
     Short paragraphs, plain English, a little humor. Hypes curiosity, not
@@ -46,7 +47,7 @@ creative_pillars:
   - name: "Community Poll"
     brief: "A punchy question with 3-5 poll options that gets members talking about their experience or opinions."
   - name: "Study Snack"
-    brief: "One study from the news pool in 5 bullet points: who, what, dose-free outcome, limitation, takeaway."
+    brief: "One study from the news pool in 5 bullet points: model/species, how it was administered in the study, results, limitation, takeaway."
   - name: "Hot Take Friday"
     brief: "A bold but defensible opinion about the peptide/fitness space that invites respectful debate."
   - name: "Member Challenge"
