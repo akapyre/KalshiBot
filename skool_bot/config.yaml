@@ -1,0 +1,57 @@
+# Skool post bot config -- edit freely, no code changes needed.
+
+community:
+  name: "Your Peptide Community"          # shown to the model so posts sound like they belong to you
+  audience: >
+    Gym-goers and fitness-focused people who are curious about peptides,
+    GLP-1s, recovery, body composition and longevity. Mix of beginners and
+    people who already follow the research closely.
+  voice: >
+    Direct, energetic, no fluff. Talks like a coach who reads the studies.
+    Short paragraphs, plain English, a little humor. Hypes curiosity, not
+    products. Skeptical of hype and always separates "shown in humans" from
+    "shown in rats".
+  signoff: ""                             # optional line added to every post, e.g. "-- Coach J"
+
+# Which kind of post each daily slot produces.
+slots:
+  morning: news        # breakdown of a fresh headline or study
+  evening: creative    # rotating content pillar (below), may riff on the news pool
+
+news:
+  lookback_days: 3
+  # Google News RSS searches. Each is a plain search string.
+  google_news_queries:
+    - "peptide research"
+    - "GLP-1 OR semaglutide OR tirzepatide OR retatrutide"
+    - "BPC-157 OR TB-500 OR ipamorelin OR CJC-1295"
+    - "FDA compounded peptides"
+    - "peptide muscle OR peptide recovery OR peptide longevity"
+  # PubMed search (new papers, abstracts not required).
+  pubmed_query: >
+    (peptide[tiab] OR GLP-1[tiab] OR semaglutide[tiab] OR tirzepatide[tiab])
+    AND (muscle[tiab] OR obesity[tiab] OR recovery[tiab] OR "body composition"[tiab]
+    OR exercise[tiab] OR aging[tiab] OR tendon[tiab])
+  pubmed_max_results: 15
+  max_items_to_model: 25   # cap on how many candidates the model sees per run
+
+# Evening "creative" posts rotate through these pillars by day.
+creative_pillars:
+  - name: "Myth vs. Fact"
+    brief: "Take one popular peptide/GLP-1 claim floating around social media and grade it against the evidence."
+  - name: "Gym Tie-In"
+    brief: "Connect a peptide topic to training: lifting, protein intake, preserving muscle on GLP-1s, sleep, recovery."
+  - name: "Explain It Like I Lift"
+    brief: "Break down one mechanism (e.g. GH secretagogues, GLP-1 satiety, collagen peptides) with a gym analogy."
+  - name: "Community Poll"
+    brief: "A punchy question with 3-5 poll options that gets members talking about their experience or opinions."
+  - name: "Study Snack"
+    brief: "One study from the news pool in 5 bullet points: who, what, dose-free outcome, limitation, takeaway."
+  - name: "Hot Take Friday"
+    brief: "A bold but defensible opinion about the peptide/fitness space that invites respectful debate."
+  - name: "Member Challenge"
+    brief: "A simple 7-day training, nutrition or tracking challenge tied to the community's goals."
+
+model:
+  name: "claude-opus-5"
+  effort: "high"
