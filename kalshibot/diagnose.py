@@ -33,7 +33,7 @@ def _try(label: str, fn) -> str:
         fn()
         return f"{label} OK"
     except requests.HTTPError as e:
-        return f"{label} HTTP {e.response.status_code}"
+        return f"{label} HTTP {e.response.status_code} {e.response.text[:200]}"
     except Exception as e:
         return f"{label} {type(e).__name__}"
 
