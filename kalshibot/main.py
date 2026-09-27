@@ -46,7 +46,7 @@ def build_kalshi_client(demo: bool) -> KalshiClient:
             "KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY_PATH not set -- running with "
             "public market-data access only, no order placement is possible"
         )
-    base_url = DEMO_BASE_URL if demo else DEFAULT_BASE_URL
+    base_url = DEMO_BASE_URL if demo else os.environ.get("KALSHI_BASE_URL", DEFAULT_BASE_URL)
     return KalshiClient(creds, base_url=base_url)
 
 
@@ -88,21 +88,35 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
             for snapshot in snapshots:
                 decisions = engine.evaluate(snapshot)
                 for decision in decisions:
-                    resolved = matcher.resolve(snapshot)
-                    if resolved is None:
-                        continue  # already logged by matcher; never guess a ticker
-
-                    market = kalshi.get_market(resolved.ticker)
-                    yes_price = market.get("market", {}).get("yes_bid", 50)
-
-                    executor.execute(
-                        decision,
-                        ticker=resolved.ticker,
-                        side=resolved.side,
-                        yes_price_cents=yes_price,
-                        open_position_count=get_open_position_count(kalshi),
-                        realized_pnl_today_usd=0.0,  # TODO: wire up settlement P&L once daily_loss_cap is enabled
+                    # Logged before any Kalshi call, so a trigger is visible
+                    # even if finding/pricing the Kalshi market fails.
+                    logger.info(
+                        "RULE TRIGGERED: %s -- %s @ %s, betting %s at live %+d (pregame %+d)",
+                        decision.rule_id, snapshot.away_team, snapshot.home_team,
+                        decision.team, snapshot.live_favorite_odds, snapshot.pregame_favorite_odds,
                     )
+                    try:
+                        resolved = matcher.resolve(snapshot)
+                        if resolved is None:
+                            continue  # already logged by matcher; never guess a ticker
+
+                        market = kalshi.get_market(resolved.ticker)
+                        yes_price = market.get("market", {}).get("yes_bid", 50)
+
+                        executor.execute(
+                            decision,
+                            ticker=resolved.ticker,
+                            side=resolved.side,
+                            yes_price_cents=yes_price,
+                            open_position_count=get_open_position_count(kalshi),
+                            realized_pnl_today_usd=0.0,  # TODO: wire up settlement P&L once daily_loss_cap is enabled
+                        )
+                    except Exception:
+                        # Not recorded as fired, so it retries next cycle.
+                        logger.exception(
+                            "Kalshi step failed for %s (%s) -- will retry next cycle",
+                            decision.rule_id, decision.team,
+                        )
 
         logger.info("Poll cycle done: %s", live_counts or "no sports queried successfully")
         time.sleep(poll_interval_s)

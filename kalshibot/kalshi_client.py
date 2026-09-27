@@ -15,6 +15,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
@@ -39,6 +40,9 @@ class KalshiClient:
     ):
         self._creds = credentials
         self._base_url = base_url.rstrip("/")
+        # Kalshi signs the full request path, e.g. "/trade-api/v2/markets",
+        # not just the part after the base URL.
+        self._base_path = urlparse(self._base_url).path
         self._timeout = timeout
         self._private_key: rsa.RSAPrivateKey | None = None
         if credentials is not None:
@@ -50,7 +54,7 @@ class KalshiClient:
         if self._creds is None or self._private_key is None:
             raise RuntimeError("Kalshi credentials are required for this request")
         timestamp_ms = str(int(time.time() * 1000))
-        message = f"{timestamp_ms}{method.upper()}{path}".encode("utf-8")
+        message = f"{timestamp_ms}{method.upper()}{self._base_path}{path}".encode("utf-8")
         signature = self._private_key.sign(
             message,
             padding.PSS(
@@ -76,7 +80,9 @@ class KalshiClient:
     ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
         headers = {"Content-Type": "application/json"}
-        if auth:
+        # Sign whenever we have credentials, not only when the endpoint
+        # strictly requires it -- market-data reads came back 401 unsigned.
+        if auth or self._creds is not None:
             headers.update(self._sign(method, path))
         response = requests.request(
             method,

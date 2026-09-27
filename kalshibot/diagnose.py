@@ -1,23 +1,62 @@
 """Show what the bot sees for one sport right now, game by game.
 
 Usage: python -m kalshibot.diagnose nfl   (or soccer / mlb / cfb)
+       python -m kalshibot.diagnose kalshi
 
 Runs the exact same query and parsing as the live bot, then prints each
-event with the reason it is or isn't counted as a live game.
+event with the reason it is or isn't counted as a live game. "kalshi"
+instead checks which Kalshi API address accepts your credentials.
 """
 from __future__ import annotations
 
 import sys
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
+from .kalshi_client import KalshiClient
+from .main import build_kalshi_client
 from .odds_providers.sportsgameodds import LEAGUE_IDS, SportsGameOddsProvider
+
+KALSHI_CANDIDATE_URLS = [
+    "https://api.elections.kalshi.com/trade-api/v2",
+    "https://external-api.kalshi.com/trade-api/v2",
+    "https://api.kalshi.com/trade-api/v2",
+    "https://trading-api.kalshi.com/trade-api/v2",
+]
+
+
+def _try(label: str, fn) -> str:
+    try:
+        fn()
+        return f"{label} OK"
+    except requests.HTTPError as e:
+        return f"{label} HTTP {e.response.status_code}"
+    except Exception as e:
+        return f"{label} {type(e).__name__}"
+
+
+def check_kalshi() -> None:
+    creds = build_kalshi_client(demo=False)._creds
+    print("Credentials loaded:", "yes" if creds else "NO -- check .env")
+    for url in KALSHI_CANDIDATE_URLS:
+        client = KalshiClient(creds, base_url=url, timeout=15)
+        markets = _try("markets", lambda: client.list_markets(limit=1))
+        balance = _try("balance", client.get_balance) if creds else "balance skipped"
+        print(f"{url}\n    {markets} | {balance}")
+    print(
+        "\nUse the address where BOTH say OK: add it to .env as\n"
+        "KALSHI_BASE_URL=<that address>"
+    )
 
 
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
+    if sport == "kalshi":
+        check_kalshi()
+        return
     if sport not in LEAGUE_IDS:
         print(f"Unknown sport {sport!r}; pick one of: {', '.join(LEAGUE_IDS)}")
         return
