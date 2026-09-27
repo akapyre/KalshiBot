@@ -90,7 +90,7 @@ class SportsGameOddsProvider:
     def _headers(self) -> dict[str, str]:
         return {"x-api-key": self._api_key}
 
-    def list_live_games(self, sport: Sport) -> list[GameSnapshot]:
+    def fetch_events(self, sport: Sport) -> list[dict[str, Any]]:
         league_ids = LEAGUE_IDS.get(sport) or []
         if not league_ids:
             return []
@@ -105,7 +105,6 @@ class SportsGameOddsProvider:
         starts_after = (now - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
         starts_before = (now + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        snapshots = []
         resp = requests.get(
             f"{API_BASE}/events",
             headers=self._headers(),
@@ -115,12 +114,18 @@ class SportsGameOddsProvider:
                 "startsAfter": starts_after,
                 "startsBefore": starts_before,
             },
-            timeout=10,
+            # limit=100 responses (with full rosters and odds per event) are
+            # large enough that 10s read timeouts were happening regularly.
+            timeout=30,
         )
         resp.raise_for_status()
         events = resp.json().get("data", [])
         logger.debug("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
-        for event in events:
+        return events
+
+    def list_live_games(self, sport: Sport) -> list[GameSnapshot]:
+        snapshots = []
+        for event in self.fetch_events(sport):
             if event.get("type") != "match":
                 continue  # skip prop-only/novelty entries (e.g. Puppy Bowl)
             snapshot = self._parse_event(sport, event)
