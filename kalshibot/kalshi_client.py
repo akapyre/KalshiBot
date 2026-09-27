@@ -21,7 +21,9 @@ import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-DEFAULT_BASE_URL = "https://trading-api.kalshi.com/trade-api/v2"
+# trading-api.kalshi.com now answers every request with "API has been moved
+# to https://api.elections.kalshi.com/" (confirmed 2026-09-27).
+DEFAULT_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 DEMO_BASE_URL = "https://demo-api.kalshi.co/trade-api/v2"
 
 
