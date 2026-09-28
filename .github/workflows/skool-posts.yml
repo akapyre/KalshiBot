@@ -1,0 +1,59 @@
+name: Skool daily posts
+
+on:
+  schedule:
+    # Times are UTC. 13:00 UTC = 9am US Eastern (8am in winter); 23:00 UTC = 7pm Eastern.
+    - cron: "0 13 * * *"   # morning -> news post
+    - cron: "0 23 * * *"   # evening -> creative post
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Which post to generate"
+        type: choice
+        options: [morning, evening]
+        default: morning
+
+permissions:
+  contents: write   # to commit the draft + dedup history back to the repo
+
+concurrency:
+  group: skool-posts
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: skool_bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+
+      - name: Pick slot
+        id: slot
+        run: |
+          if [ -n "${{ inputs.slot }}" ]; then echo "slot=${{ inputs.slot }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 13 * * *" ]; then echo "slot=morning" >> "$GITHUB_OUTPUT"
+          else echo "slot=evening" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Generate post
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          POST_EMAIL_TO: ${{ secrets.POST_EMAIL_TO }}
+          POST_WEBHOOK_URL: ${{ secrets.POST_WEBHOOK_URL }}
+        run: python -m skoolbot --slot "${{ steps.slot.outputs.slot }}"
+
+      - name: Commit draft
+        run: |
+          git config user.name "skool-post-bot"
+          git config user.email "skool-post-bot@users.noreply.github.com"
+          git add drafts data
+          git diff --cached --quiet || git commit -m "Skool ${{ steps.slot.outputs.slot }} post draft $(date -u +%F)"
+          git push

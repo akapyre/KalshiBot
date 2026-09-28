@@ -1,0 +1,65 @@
+# Skool post bot config -- edit freely, no code changes needed.
+
+community:
+  name: "Your Peptide Community"          # for your reference only; never written into posts
+  audience: >
+    Lifters and fitness people running or researching peptides, GLP-1s
+    (sema/tirz/reta), nootropics and AAS. Many already follow the research,
+    so they want real mechanisms and real study numbers, explained simply.
+  # Rough voice note. Your real posts in style_examples/ take priority over this.
+  voice: >
+    First person, casual and hyped, like talking to friends at the gym.
+    Talks to "you guys". Opens with a hook tied to what people are seeing or
+    asking ("You've probably seen...", "In the top three questions I get...")
+    then "so let's talk about it". Explains mechanisms with simple analogies
+    (faucets, "stroke of the optic nerve"). Uses CAPS for emphasis (NOT,
+    DOUBLE, EMERGENCY) and ALL-CAPS section headers on long posts. Numbered
+    lists and "*" bullets. Straight about evidence ("only studied in animals").
+    Ends reassuring or asking people to drop their thoughts below.
+  # Optional line added to the end of every post, word for word. The bot never
+  # writes vendor or affiliate plugs itself, so put your own here if you want
+  # one on every post, e.g. 'For convenient bloodwork, code "pyre" at AlgoRX ...'
+  signoff: ""
+
+# Which kind of post each daily slot produces.
+slots:
+  morning: news        # breakdown of a fresh headline or study
+  evening: creative    # rotating content pillar (below), may riff on the news pool
+
+news:
+  lookback_days: 3
+  # Google News RSS searches. Each is a plain search string.
+  google_news_queries:
+    - "peptide research"
+    - "GLP-1 OR semaglutide OR tirzepatide OR retatrutide"
+    - "BPC-157 OR TB-500 OR ipamorelin OR CJC-1295"
+    - "FDA compounded peptides"
+    - "peptide muscle OR peptide recovery OR peptide longevity"
+    - "nootropic study OR modafinil OR armodafinil"
+    - "anabolic steroid study OR testosterone therapy"
+  # PubMed search (new papers, abstracts not required).
+  pubmed_query: >
+    (peptide[tiab] OR GLP-1[tiab] OR semaglutide[tiab] OR tirzepatide[tiab])
+    AND (muscle[tiab] OR obesity[tiab] OR recovery[tiab] OR "body composition"[tiab]
+    OR exercise[tiab] OR aging[tiab] OR tendon[tiab])
+  pubmed_max_results: 15
+  max_items_to_model: 25   # cap on how many candidates the model sees per run
+
+# Evening "creative" posts rotate through these pillars by day.
+creative_pillars:
+  - name: "Compound Deep Dive"
+    brief: "Pick one compound (peptide, GLP-1, nootropic or AAS). Cover what it is, history/approval status, mechanism in simple terms with an analogy, what people notice, what to watch for, and what the evidence level is. Like the Dianabol, PPAP and Armodafinil posts."
+  - name: "Literature Breakdown"
+    brief: "Take one question people are worried or curious about and walk through the studies from the pool one by one (author/journal/year, who was studied, what was given, what was found), then THE PATTERN, then what it means. Like the GLP-1 vision post."
+  - name: "Hot Take"
+    brief: "A bold, slightly confrontational but caring opinion about how people approach peptides/research. Like 'This Post Might Offend You...'."
+  - name: "Practical How-To"
+    brief: "A numbered, practical guide on a lifestyle or research skill (sleep, reading studies, tracking, bloodwork, training around a compound). No dosing numbers. Like the sleep and 'How to Actually Read a Study' posts."
+  - name: "Myth vs. Fact"
+    brief: "Take one popular claim going around TikTok/social media and grade it against the evidence."
+  - name: "Mechanism Explained Simply"
+    brief: "Explain one pathway or concept (half-life, receptor agonism, GH pulses, aromatization, titration) with a gym-friendly analogy."
+
+model:
+  name: "claude-opus-5"
+  effort: "high"
