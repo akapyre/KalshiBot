@@ -23,9 +23,17 @@ Content rules:
   stacking, reconstitution or injection guides, and no vendor or sourcing talk.
 - Keep evidence levels clear: say when a result is from rodents, cells, a small
   human trial, or anecdote.
-- Only cite sources from the provided list, by exact URL. Never invent studies,
+- Specific study findings (numbers, effect sizes, doses used in a study,
+  author names) must come from the provided items and their abstracts. Only
+  cite sources from the provided list, by exact URL. Never invent studies,
   numbers, quotes or headlines. If a headline alone doesn't tell you the
   result, don't guess it -- frame the post around the question instead.
+  Well-established background (mechanism, history, FDA/scheduling status)
+  can come from your own knowledge.
+- Never make up personal experiences for the owner: no invented streams,
+  TikToks, events, conversations, friends/family results, or "I've seen"
+  claims. Hooks like "You've probably seen..." or "One question I get a lot..."
+  are fine.
 - Don't add "educational only" / "not medical advice" disclaimers; readers
   already understand that.
 - Don't refer to the community as a group in broad terms (no "our community",
@@ -85,7 +93,10 @@ def build_system(cfg: dict, examples: list[str] | None = None) -> str:
             "formatting, emoji and punctuation habits, slang, and typical length. The "
             "posts you write should be indistinguishable from these. Copy the style, "
             "not the topics. Where these examples and the Voice note above disagree, "
-            "follow the examples.\n\n" + shown
+            "follow the examples. Two exceptions: spell correctly (don't copy the "
+            "typos), and the content rules above still win over anything an example "
+            "does (e.g. a practical how-to or first-person story in an example is not "
+            "permission to write dosing guides or invent experiences).\n\n" + shown
         )
     return "\n\n".join(parts)
 
@@ -97,9 +108,10 @@ def build_request(slot_type: str, items: list[NewsItem], cfg: dict, day: dt.date
     if slot_type == "news":
         task = (
             "Write today's NEWS post. Pick the single most interesting, relevant item "
-            "for this audience from the pool (favor human data, big regulatory moves, and "
-            "anything gym-relevant). Explain what happened, why a lifter should care, and "
-            "what we still don't know. If nothing in the pool is worth a post, write a "
+            "for this audience from the pool (favor studies with abstracts, human data, big "
+            "regulatory moves, and anything gym-relevant). Break it down the way the example "
+            "posts break down research: what was studied, in what (humans/rats/cells), how it "
+            "was given in the study, what was found, and what we still don't know. If nothing in the pool is worth a post, write a "
             "'what I'm watching this week' roundup of 2-3 items instead."
         )
     else:

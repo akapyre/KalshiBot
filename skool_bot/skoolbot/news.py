@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -15,7 +16,8 @@ log = logging.getLogger(__name__)
 
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search?q={q}+when:{days}d&hl=en-US&gl=US&ceid=US:en"
 PUBMED_SEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-PUBMED_SUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+PUBMED_FETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+MAX_ABSTRACT_CHARS = 4000
 TIMEOUT = 20
 HEADERS = {"User-Agent": "skool-peptide-post-bot/1.0"}
 
@@ -28,6 +30,7 @@ class NewsItem:
     source: str
     published: str   # ISO date, may be ""
     kind: str        # "news" or "study"
+    summary: str = ""  # study abstract, when we have one
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -62,21 +65,41 @@ def parse_google_news_rss(xml_text: str) -> list[NewsItem]:
     return items
 
 
-def parse_pubmed_summary(data: dict) -> list[NewsItem]:
-    result = data.get("result", {})
+def _text(el) -> str:
+    """Element text including inline markup like <i>, whitespace collapsed."""
+    return " ".join("".join(el.itertext()).split()) if el is not None else ""
+
+
+def parse_pubmed_efetch(xml_text: str) -> list[NewsItem]:
     items = []
-    for pmid in result.get("uids", []):
-        rec = result.get(pmid, {})
-        title = (rec.get("title") or "").strip().rstrip(".")
+    for art in ET.fromstring(xml_text).iter("PubmedArticle"):
+        pmid = _text(art.find("MedlineCitation/PMID"))
+        article = art.find("MedlineCitation/Article")
+        if not pmid or article is None:
+            continue
+        title = _text(article.find("ArticleTitle")).rstrip(".")
         if not title:
             continue
+        parts = []
+        for t in article.findall("Abstract/AbstractText"):
+            label = t.get("Label")
+            parts.append(f"{label}: {_text(t)}" if label else _text(t))
+        abstract = " ".join(parts)
+        if len(abstract) > MAX_ABSTRACT_CHARS:
+            abstract = abstract[:MAX_ABSTRACT_CHARS].rsplit(" ", 1)[0] + " [abstract truncated]"
+        published = ""
+        d = art.find("PubmedData/History/PubMedPubDate[@PubStatus='pubmed']")
+        if d is not None and d.findtext("Year"):
+            try:
+                published = dt.date(int(d.findtext("Year")), int(d.findtext("Month") or 1),
+                                    int(d.findtext("Day") or 1)).isoformat()
+            except ValueError:
+                pass
         items.append(NewsItem(
-            id=f"pmid:{pmid}",
-            title=title,
+            id=f"pmid:{pmid}", title=title,
             url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-            source=rec.get("fulljournalname") or rec.get("source") or "PubMed",
-            published=rec.get("sortpubdate", "")[:10].replace("/", "-"),
-            kind="study",
+            source=_text(article.find("Journal/Title")) or "PubMed",
+            published=published, kind="study", summary=abstract,
         ))
     return items
 
@@ -97,11 +120,11 @@ def fetch_pubmed(query: str, days: int, max_results: int) -> list[NewsItem]:
     ids = search.json().get("esearchresult", {}).get("idlist", [])
     if not ids:
         return []
-    summary = requests.get(PUBMED_SUMMARY, headers=HEADERS, timeout=TIMEOUT, params={
-        "db": "pubmed", "id": ",".join(ids), "retmode": "json",
+    fetched = requests.get(PUBMED_FETCH, headers=HEADERS, timeout=TIMEOUT, params={
+        "db": "pubmed", "id": ",".join(ids), "rettype": "abstract", "retmode": "xml",
     })
-    summary.raise_for_status()
-    return parse_pubmed_summary(summary.json())
+    fetched.raise_for_status()
+    return parse_pubmed_efetch(fetched.text)
 
 
 def gather(news_cfg: dict, already_used: set[str]) -> list[NewsItem]:
