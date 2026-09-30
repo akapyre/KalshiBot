@@ -23,8 +23,11 @@ class Rule:
     trigger_exclusive_min: bool
     trigger_quarter: int | None      # exact-match period (e.g. NFL "in the 4th quarter")
     trigger_period_min: int | None   # minimum period, inclusive (e.g. MLB "past the 6th inning")
+    trigger_scores: frozenset[tuple[int, int]] | None  # allowed (favorite, underdog) scores
     odds_beyond_invalidate: int | None
     trailing_goal_invalidate: bool
+    late_period: int | None          # final regulation period (e.g. NHL 3rd)...
+    late_minutes: float | None       # ...and how many minutes left counts as "too late"
     requires_prior_rule: str | None
     max_bets_per_game: int
 
@@ -33,6 +36,8 @@ class Rule:
         pregame = d.get("pregame", {})
         trigger = d.get("trigger", {})
         invalidate = d.get("invalidate_if", {}) or {}
+        scores = trigger.get("favorite_trailing_scores")
+        late = invalidate.get("late_in_game") or {}
         return cls(
             id=d["id"],
             sport=d["sport"],
@@ -43,8 +48,11 @@ class Rule:
             trigger_exclusive_min=bool(trigger.get("exclusive_min", False)),
             trigger_quarter=trigger.get("quarter"),
             trigger_period_min=trigger.get("period_min"),
+            trigger_scores=frozenset(tuple(s) for s in scores) if scores else None,
             odds_beyond_invalidate=invalidate.get("odds_beyond"),
             trailing_goal_invalidate=bool(invalidate.get("trailing_by_goal_after_halftime", False)),
+            late_period=late.get("period"),
+            late_minutes=late.get("minutes_remaining"),
             requires_prior_rule=d.get("requires_prior_rule"),
             max_bets_per_game=int(d.get("max_bets_per_game", 1)),
         )
@@ -89,24 +97,44 @@ def _trigger_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
     if rule.trigger_period_min is not None:
         if snapshot.period is None or snapshot.period < rule.trigger_period_min:
             return False
+    if rule.trigger_scores is not None:
+        if _favorite_and_underdog_score(snapshot) not in rule.trigger_scores:
+            return False
     return True
+
+
+def _favorite_and_underdog_score(snapshot: GameSnapshot) -> tuple[int, int] | None:
+    if snapshot.home_score is None or snapshot.away_score is None:
+        return None
+    if snapshot.favorite_team == snapshot.home_team:
+        return snapshot.home_score, snapshot.away_score
+    return snapshot.away_score, snapshot.home_score
 
 
 def _favorite_trailing_by_goal_after_half(snapshot: GameSnapshot) -> bool:
     if not snapshot.past_halftime:
         return False
-    if snapshot.home_score is None or snapshot.away_score is None:
+    scores = _favorite_and_underdog_score(snapshot)
+    return scores is not None and scores[1] - scores[0] >= 1
+
+
+def _in_late_game(rule: Rule, snapshot: GameSnapshot) -> bool:
+    # Unknown period (overtime reports as "ot", which has no number) or an
+    # unreadable clock in the final period both count as "too late" --
+    # skipping a bet is the safe failure here.
+    if snapshot.period is None or snapshot.period > rule.late_period:
+        return True
+    if snapshot.period < rule.late_period:
         return False
-    favorite_is_home = snapshot.favorite_team == snapshot.home_team
-    favorite_score = snapshot.home_score if favorite_is_home else snapshot.away_score
-    opponent_score = snapshot.away_score if favorite_is_home else snapshot.home_score
-    return opponent_score - favorite_score >= 1
+    return snapshot.seconds_remaining is None or snapshot.seconds_remaining <= rule.late_minutes * 60
 
 
 def _invalidated(rule: Rule, snapshot: GameSnapshot) -> bool:
     if rule.odds_beyond_invalidate is not None and snapshot.live_favorite_odds > rule.odds_beyond_invalidate:
         return True
     if rule.trailing_goal_invalidate and _favorite_trailing_by_goal_after_half(snapshot):
+        return True
+    if rule.late_period is not None and _in_late_game(rule, snapshot):
         return True
     return False
 

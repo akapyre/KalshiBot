@@ -9,6 +9,7 @@ instead checks which Kalshi API address accepts your credentials.
 """
 from __future__ import annotations
 
+import json
 import sys
 
 import requests
@@ -66,39 +67,46 @@ def main() -> None:
     print(f"{sport}: {len(events)} events returned (leagues {LEAGUE_IDS[sport]})\n")
 
     counts: dict[str, int] = {}
+    sample_live_status = None
     for event in events:
         status = event.get("status", {})
         teams = event.get("teams", {})
         away = teams.get("away", {}).get("names", {}).get("long", "?")
         home = teams.get("home", {}).get("names", {}).get("long", "?")
 
-        ml = {}
-        for odd in event.get("odds", {}).values():
-            if odd.get("periodID") == "game" and odd.get("betTypeID") == "ml":
-                ml[odd.get("sideID")] = odd.get("bookOdds") or odd.get("fairOdds")
-
+        snap = provider._parse_event(sport, event) if event.get("type") == "match" else None
         if event.get("type") != "match":
             verdict = f"skipped (type={event.get('type')})"
+        elif snap is None:
+            verdict = "DROPPED (no moneyline or unparseable)"
+        elif snap.is_live:
+            verdict = "COUNTED AS LIVE"
+            sample_live_status = sample_live_status or status
+        elif snap.is_final:
+            verdict = "finished"
         else:
-            snap = provider._parse_event(sport, event)
-            if snap is None:
-                verdict = "DROPPED (no moneyline or unparseable)"
-            elif snap.is_live:
-                verdict = "COUNTED AS LIVE"
-            elif snap.is_final:
-                verdict = "finished"
-            else:
-                verdict = "upcoming (pregame line cached each cycle)"
+            verdict = "upcoming (pregame line cached each cycle)"
 
         counts[verdict] = counts.get(verdict, 0) + 1
-        print(
-            f"{verdict:45} live={status.get('live')!s:5} period={status.get('currentPeriodID') or '-':4} "
-            f"{away} @ {home}  ml home={ml.get('home')} away={ml.get('away')}"
-        )
+        line = f"{verdict:42} {away} @ {home}"
+        if snap is not None:
+            pregame = snap.pregame_favorite_odds
+            line += (
+                f" | fav {snap.favorite_team} pregame {pregame if pregame is not None else 'NONE'}"
+                f" live {snap.live_favorite_odds:+d} | score {snap.away_score}-{snap.home_score}"
+                f" period {snap.period} clock {snap.seconds_remaining}s"
+            )
+        print(line)
 
     print("\nSummary:")
     for verdict, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"  {n:3}  {verdict}")
+
+    # Raw status of one live game, to check how period and clock come
+    # through for this sport (the NHL clock format is not yet verified).
+    if sample_live_status is not None:
+        print("\nRaw status of one live game:")
+        print(json.dumps(sample_live_status, indent=2))
 
 
 if __name__ == "__main__":

@@ -38,19 +38,21 @@ class BetStateStore:
 
 
 class PregameOddsStore:
-    """Persists each game's captured pregame line, so a bot restart (not
-    just a sleep/wake, an actual process restart) doesn't lose the baseline
-    for a game already in progress -- it would otherwise fall back to
-    treating "pregame odds" as "whatever the live odds are right now,"
-    which can never trigger a rule that depends on the line having moved."""
+    """Persists each game's pregame favorite (which side, and its odds), so
+    a process restart doesn't lose the baseline for a game in progress.
+
+    The side matters as much as the odds: once a game is live, the rules
+    follow THIS team's price. Re-deriving "the favorite" from live odds
+    would silently switch to the other team the moment the favorite fell
+    behind -- and then bet on the wrong team."""
 
     def __init__(self, path: str | Path = "state/pregame_odds.json"):
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._data: dict[str, int] = self._load()
+        self._data: dict[str, dict] = self._load()
 
-    def _load(self) -> dict[str, int]:
+    def _load(self) -> dict[str, dict]:
         if self._path.exists():
             return json.loads(self._path.read_text())
         return {}
@@ -58,16 +60,20 @@ class PregameOddsStore:
     def _save(self) -> None:
         self._path.write_text(json.dumps(self._data, indent=2, sort_keys=True))
 
-    def get(self, game_id: str) -> int | None:
+    def get(self, game_id: str) -> tuple[str, int] | None:
+        """Returns (side, odds) -- side is "home" or "away" -- or None."""
         with self._lock:
-            return self._data.get(game_id)
+            entry = self._data.get(game_id)
+        # Older versions stored a bare odds number with no side; without the
+        # side we can't know which team it belonged to, so treat as absent.
+        if not isinstance(entry, dict):
+            return None
+        return entry["side"], entry["odds"]
 
-    def set(self, game_id: str, odds: int) -> None:
+    def set(self, game_id: str, side: str, odds: int) -> None:
         """Overwrites unconditionally -- called every cycle a game is still
         pregame, so the stored value tracks the line right up to kickoff
-        (closing line), not just the first value ever seen (opening line).
-        Once a game goes live, the caller stops calling this for it, so the
-        last pregame value written is what persists."""
+        (closing line). Once a game starts, the caller stops calling this."""
         with self._lock:
-            self._data[game_id] = odds
+            self._data[game_id] = {"side": side, "odds": odds}
             self._save()

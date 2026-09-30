@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-Sport = Literal["soccer", "tennis", "nfl", "mlb", "cfb"]
+Sport = Literal["soccer", "tennis", "nfl", "mlb", "cfb", "nhl"]
 
 
 @dataclass
@@ -19,13 +19,14 @@ class GameSnapshot:
     home_team: str
     away_team: str
     favorite_team: str           # team favored PREGAME (fixed once the game starts)
-    pregame_favorite_odds: int   # American odds for favorite_team, captured pregame
-    live_favorite_odds: int      # current American odds for favorite_team
+    pregame_favorite_odds: int | None  # favorite_team's pregame odds; None = never seen pregame
+    live_favorite_odds: int      # current American odds for favorite_team (same team, not whoever's favored now)
     start_time_utc: str
     is_live: bool
     is_final: bool
     # game-state fields, only populated where the sport/rule needs them
-    period: int | None = None            # e.g. NFL quarter (1-4, 5=OT) or MLB inning
+    period: int | None = None            # e.g. NFL quarter, MLB inning, NHL period; None for OT/unknown
+    seconds_remaining: int | None = None  # game clock left in the current period, if known
     home_score: int | None = None
     away_score: int | None = None
     past_halftime: bool | None = None

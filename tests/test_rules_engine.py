@@ -246,3 +246,55 @@ def test_no_other_rule_fires_after_one_has_for_same_game(engine):
     # but on the SAME game_id no second soccer rule should be allowed to fire.
     snap = make_snapshot(pregame_favorite_odds=-170, live_favorite_odds=150)
     assert eng.evaluate(snap) == []
+
+
+def nhl(**overrides):
+    base = dict(
+        sport="nhl", pregame_favorite_odds=-180, live_favorite_odds=110,
+        favorite_team="Home FC", home_score=0, away_score=1,
+        period=2, seconds_remaining=600,
+    )
+    base.update(overrides)
+    return make_snapshot(**base)
+
+
+@pytest.mark.parametrize("fav, dog", [(0, 1), (1, 2)])
+def test_nhl_fires_when_favorite_trails_one_nil_or_two_one(engine, fav, dog):
+    eng, _ = engine
+    decisions = eng.evaluate(nhl(home_score=fav, away_score=dog))
+    assert [(d.rule_id, d.team) for d in decisions] == [("nhl_favorite_trails_by_one", "Home FC")]
+
+
+@pytest.mark.parametrize("fav, dog", [(1, 1), (0, 2), (2, 3), (1, 0), (0, 0)])
+def test_nhl_skips_other_scores(engine, fav, dog):
+    eng, _ = engine
+    assert eng.evaluate(nhl(home_score=fav, away_score=dog)) == []
+
+
+def test_nhl_uses_favorite_side_when_favorite_is_away(engine):
+    eng, _ = engine
+    snap = nhl(favorite_team="Away FC", home_score=1, away_score=0)
+    assert [d.team for d in eng.evaluate(snap)] == ["Away FC"]
+
+
+def test_nhl_needs_minus_170_favorite(engine):
+    eng, _ = engine
+    assert eng.evaluate(nhl(pregame_favorite_odds=-165)) == []
+    assert eng.evaluate(nhl(pregame_favorite_odds=None)) == []
+
+
+@pytest.mark.parametrize(
+    "period, seconds, fires",
+    [
+        (3, 361, True),     # 6:01 left in the 3rd
+        (3, 360, False),    # 6:00 left -- last 6 minutes
+        (3, 90, False),
+        (3, None, False),   # clock unreadable in the 3rd -- skip
+        (None, None, False),  # overtime ("ot" has no period number)
+        (1, None, True),    # early periods don't need the clock
+    ],
+)
+def test_nhl_last_six_minutes_blocked(engine, period, seconds, fires):
+    eng, _ = engine
+    decisions = eng.evaluate(nhl(period=period, seconds_remaining=seconds))
+    assert bool(decisions) is fires

@@ -47,6 +47,21 @@
 #      quarter/time gate in this rule -- read as "once, whenever live odds
 #      land in that band," not a specific game window. Tell me if you meant
 #      something more specific by "that period."
+#   9. NHL (nhl_favorite_trails_by_one) is score-based, not odds-based:
+#      wager on a -170-or-steeper pregame favorite when the score is exactly
+#      0-1 or 1-2 (favorite's goals first), at whatever the live price is.
+#      a) The bot polls, so it can't see goal ORDER -- it sees a 1-2 score
+#         and bets, even if the underdog scored first (0-1, 1-1, 1-2). In
+#         practice that case only slips through if the 0-1 moment was
+#         missed between polls, since a bet placed at 0-1 uses up the one
+#         bet for that game anyway.
+#      b) "Go-ahead goal in the last 6 minutes" is approximated as "the bot
+#         first sees that score with 6:00 or less left in the 3rd, or in
+#         overtime." A goal at 6:30 that the next poll only catches at 5:50
+#         gets skipped -- the cautious direction. Shorter --interval makes
+#         this more precise but costs more API usage.
+#      c) If the game clock can't be read in the 3rd period, that period is
+#         treated as "too late" rather than guessed at.
 #
 # STAKE / RISK: flat $15 per wager (config/risk.yaml). No daily loss cap and
 # no max concurrent positions are enforced right now, per your instruction --
@@ -203,6 +218,23 @@ rules:
       max_odds: 150
     invalidate_if: {}
     max_bets_per_game: 3
+
+  - id: nhl_favorite_trails_by_one
+    sport: nhl
+    description: >
+      Pregame favorite at -170 or steeper. Wager on the favorite when the
+      underdog leads by one at 1-0 or 2-1, unless it's the last 6 minutes of
+      regulation (or overtime). See assumption #9 above.
+    pregame:
+      side: favorite
+      max_odds: -170
+    trigger:
+      favorite_trailing_scores: [[0, 1], [1, 2]]   # [favorite goals, underdog goals]
+    invalidate_if:
+      late_in_game:
+        period: 3
+        minutes_remaining: 6
+    max_bets_per_game: 1
 
   - id: mlb_favorite_fade
     sport: mlb

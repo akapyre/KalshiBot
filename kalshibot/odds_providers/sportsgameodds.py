@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -75,6 +76,7 @@ LEAGUE_IDS: dict[Sport, list[str]] = {
     "tennis": [],  # not covered by this provider -- see module docstring
     "mlb": ["MLB"],  # confirmed present in GET /v2/leagues
     "cfb": ["NCAAF"],  # confirmed present in GET /v2/leagues (early exploration, not the MLB/NFL session)
+    "nhl": ["NHL"],  # confirmed present in GET /v2/leagues
 }
 
 
@@ -131,13 +133,15 @@ class SportsGameOddsProvider:
             snapshot = self._parse_event(sport, event)
             if snapshot is None:
                 continue
-            if not snapshot.is_live:
-                self._pregame_store.set(snapshot.game_id, snapshot.live_favorite_odds)
+            if not _has_started(event.get("status", {})):
+                side = "home" if snapshot.favorite_team == snapshot.home_team else "away"
+                self._pregame_store.set(snapshot.game_id, side, snapshot.live_favorite_odds)
             snapshots.append(snapshot)
         return [s for s in snapshots if s.is_live]
 
     def get_pregame_odds(self, sport: Sport, game_id: str) -> int | None:
-        return self._pregame_store.get(game_id)
+        stored = self._pregame_store.get(game_id)
+        return stored[1] if stored else None
 
     def _parse_event(self, sport: Sport, event: dict[str, Any]) -> GameSnapshot | None:
         try:
@@ -171,17 +175,32 @@ class SportsGameOddsProvider:
                     )
                 return None
 
-            favorite_is_home = home_ml < away_ml
-            favorite_team = home_name if favorite_is_home else away_name
-            live_favorite_odds = home_ml if favorite_is_home else away_ml
-
             status = event.get("status", {})
+
+            # Before the game starts, the favorite is whoever the current
+            # line favors and that line IS the pregame line. Once it starts,
+            # the favorite is locked to the stored pregame side, and "live
+            # odds" means that same team's current price -- even after the
+            # other team becomes favored.
+            if not _has_started(status):
+                fav_side = "home" if home_ml < away_ml else "away"
+                pregame_odds = home_ml if fav_side == "home" else away_ml
+            else:
+                stored = self._pregame_store.get(game_id)
+                if stored is not None:
+                    fav_side, pregame_odds = stored
+                else:
+                    # Never seen pregame: no baseline, so rules skip it.
+                    fav_side = "home" if home_ml < away_ml else "away"
+                    pregame_odds = None
+
+            favorite_team = home_name if fav_side == "home" else away_name
+            live_favorite_odds = home_ml if fav_side == "home" else away_ml
+
             current_period = status.get("currentPeriodID", "")
             period = _parse_period_number(current_period)
             started_periods = status.get("periods", {}).get("started", [])
             past_halftime = "2h" in started_periods if sport == "soccer" else None
-
-            pregame = self._pregame_store.get(game_id)
 
             return GameSnapshot(
                 game_id=game_id,
@@ -189,12 +208,13 @@ class SportsGameOddsProvider:
                 home_team=home_name,
                 away_team=away_name,
                 favorite_team=favorite_team,
-                pregame_favorite_odds=pregame if pregame is not None else live_favorite_odds,
+                pregame_favorite_odds=pregame_odds,
                 live_favorite_odds=live_favorite_odds,
                 start_time_utc=status.get("startsAt", ""),
                 is_live=bool(status.get("live", False)),
                 is_final=bool(status.get("completed", False) or status.get("finalized", False)),
                 period=period,
+                seconds_remaining=_parse_clock_seconds(status),
                 home_score=home.get("score"),
                 away_score=away.get("score"),
                 past_halftime=past_halftime,
@@ -207,10 +227,36 @@ class SportsGameOddsProvider:
             return None
 
 
+def _has_started(status: dict[str, Any]) -> bool:
+    return bool(
+        status.get("started") or status.get("live")
+        or status.get("completed") or status.get("finalized")
+    )
+
+
 def _parse_period_number(period_id: str) -> int | None:
-    """"1q" -> 1, "4q" -> 4, "2h" -> 2; "ot"/"game"/"reg"/"" -> None.
-    Assumed (not yet confirmed against a real MLB response) that innings
-    follow the same leading-digit convention, e.g. "7t"/"7b" -> 7."""
-    if period_id and period_id[0].isdigit():
-        return int(period_id[0])
+    """"1q" -> 1, "4q" -> 4, "2h" -> 2, "3p" -> 3, "10t" -> 10;
+    "ot"/"so"/"game"/"reg"/"" -> None. Reads every leading digit, so extra
+    innings ("10t") don't collapse to 1. MLB/NHL formats are assumed from
+    the NFL/soccer pattern, not yet confirmed against real responses."""
+    match = re.match(r"\d+", period_id or "")
+    return int(match.group()) if match else None
+
+
+_CLOCK_RE = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+def _parse_clock_seconds(status: dict[str, Any]) -> int | None:
+    """Seconds left in the current period. UNVERIFIED: no live NHL response
+    has been inspected yet, so this tries a numeric/"mm:ss" `clock` field,
+    then any "mm:ss" in the display strings. Returns None if none found --
+    the NHL rule treats an unknown clock in the 3rd period as "too late"."""
+    clock = status.get("clock")
+    if isinstance(clock, (int, float)) and not isinstance(clock, bool):
+        return int(clock)
+    for text in (clock, status.get("displayShort"), status.get("displayLong")):
+        if isinstance(text, str):
+            match = _CLOCK_RE.search(text)
+            if match:
+                return int(match.group(1)) * 60 + int(match.group(2))
     return None
