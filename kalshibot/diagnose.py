@@ -22,7 +22,7 @@ load_dotenv()
 
 from .kalshi_client import KalshiClient
 from .main import build_kalshi_client
-from .matching import SERIES_BY_SPORT, MarketMatcher
+from .matching import SERIES_BY_SPORT, MarketMatcher, event_date, game_date
 from .odds_providers.sportsgameodds import LEAGUE_IDS, SportsGameOddsProvider
 
 KALSHI_CANDIDATE_URLS = [
@@ -99,12 +99,12 @@ def check_markets(sport: str) -> None:
         snap = provider._parse_event(sport, event) if event.get("type") == "match" else None
         if snap is None or snap.is_final:
             continue
-        game = f"{snap.away_team} @ {snap.home_team} (fav {snap.favorite_team})"
-        found = matcher.game_markets(snap)
+        game = f"{snap.away_team} @ {snap.home_team} on {game_date(snap)} (fav {snap.favorite_team})"
+        events = matcher.candidate_events(snap)
         resolved = matcher.resolve(snap)
         choice = f"BUY YES {resolved.ticker}" if resolved else "SKIP"
-        yes_names = ", ".join(str(m.get("yes_sub_title")) for m in found) or "-"
-        print(f"  {game}: {len(found)} market(s) [yes = {yes_names}] -> {choice}")
+        found = ", ".join(f"{e} [{event_date(e)}]" for e in sorted(events)) or "none"
+        print(f"  {game}\n      Kalshi events for these teams: {found}\n      -> {choice}")
 
 
 def main() -> None:

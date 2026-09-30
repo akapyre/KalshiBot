@@ -1,10 +1,13 @@
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import pytest
+
 from kalshibot.kalshi_client import KalshiClient
-from kalshibot.matching import MarketMatcher
+from kalshibot.matching import MarketMatcher, event_date, game_date
 from kalshibot.odds_providers.base import GameSnapshot
 
 
@@ -16,76 +19,92 @@ class FakeKalshi:
         return self.markets
 
 
-def market(ticker, event, title, yes):
-    return {"ticker": ticker, "event_ticker": event, "title": title, "yes_sub_title": yes}
+def game_markets(event, *teams):
+    """Kalshi's real layout: one "<Team> wins" market per team per event."""
+    return [
+        {"ticker": f"{event}-{abbr}", "event_ticker": event, "title": f"{name} wins",
+         "yes_sub_title": name, "no_sub_title": name}
+        for abbr, name in teams
+    ]
 
 
-def snap(home, away, favorite, sport="nhl"):
+def snap(home, away, favorite, start="2026-10-07T02:00:00Z", sport="nhl"):
     return GameSnapshot(
         game_id="g", sport=sport, home_team=home, away_team=away, favorite_team=favorite,
-        pregame_favorite_odds=-770, live_favorite_odds=-400, start_time_utc="",
+        pregame_favorite_odds=-770, live_favorite_odds=-400, start_time_utc=start,
         is_live=True, is_final=False,
     )
 
 
-VAN_EDM = [
-    market("NHL-VANEDM-VAN", "NHL-VANEDM", "Vancouver vs Edmonton Winner?", "Vancouver"),
-    market("NHL-VANEDM-EDM", "NHL-VANEDM", "Vancouver vs Edmonton Winner?", "Edmonton"),
-    market("NHL-CGYEDM-EDM", "NHL-CGYEDM", "Calgary vs Edmonton Winner?", "Edmonton"),
-]
+# Oct 6 (a 10pm ET start is 02:00 UTC on Oct 7) plus a later rematch and an
+# unrelated Edmonton game.
+MARKETS = (
+    game_markets("KXNHLGAME-26OCT06VANEDM", ("VAN", "Vancouver"), ("EDM", "Edmonton"))
+    + game_markets("KXNHLGAME-26NOV02VANEDM", ("VAN", "Vancouver"), ("EDM", "Edmonton"))
+    + game_markets("KXNHLGAME-26OCT06CGYEDM", ("CGY", "Calgary"), ("EDM", "Edmonton"))
+)
 
 
 def resolve(markets, game):
     return MarketMatcher(FakeKalshi(markets)).resolve(game)
 
 
-def test_buys_yes_on_the_favorites_own_market():
-    r = resolve(VAN_EDM, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers"))
-    assert (r.ticker, r.side) == ("NHL-VANEDM-EDM", "yes")
+def test_buys_yes_on_favorite_in_the_event_on_the_games_date():
+    r = resolve(MARKETS, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers"))
+    assert (r.ticker, r.side) == ("KXNHLGAME-26OCT06VANEDM-EDM", "yes")
 
 
 def test_away_favorite():
-    r = resolve(VAN_EDM, snap("Edmonton Oilers", "Vancouver Canucks", "Vancouver Canucks"))
-    assert (r.ticker, r.side) == ("NHL-VANEDM-VAN", "yes")
+    r = resolve(MARKETS, snap("Edmonton Oilers", "Vancouver Canucks", "Vancouver Canucks"))
+    assert r.ticker == "KXNHLGAME-26OCT06VANEDM-VAN"
 
 
-def test_skips_when_only_the_underdogs_market_exists():
-    only_van = [VAN_EDM[0]]
-    assert resolve(only_van, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers")) is None
+def test_later_rematch_is_not_bought_for_todays_game():
+    game = snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers", start="2026-09-30T02:00:00Z")
+    assert resolve(MARKETS, game) is None
 
 
-def test_skips_when_yes_side_is_unnamed():
-    unnamed = [market("X", "E", "Vancouver vs Edmonton Winner?", "")]
-    assert resolve(unnamed, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers")) is None
+def test_skips_when_only_one_teams_market_is_open():
+    one = game_markets("KXNHLGAME-26OCT06VANEDM", ("EDM", "Edmonton"))
+    assert resolve(one, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers")) is None
 
 
-def test_skips_when_two_different_events_match():
-    two = VAN_EDM[:2] + [market("NHL-VANEDM2-EDM", "NHL-VANEDM2", "Vancouver vs Edmonton Winner?", "Edmonton")]
-    assert resolve(two, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers")) is None
+def test_skips_two_events_on_the_same_date():
+    doubled = MARKETS + game_markets("KXNHLGAME-26OCT06VANEDM2", ("VAN", "Vancouver"), ("EDM", "Edmonton"))
+    assert resolve(doubled, snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers")) is None
+
+
+@pytest.mark.parametrize(
+    "label, team",
+    [("Vegas", "Vegas Golden Knights"), ("St. Louis", "St. Louis Blues"),
+     ("Minnesota", "Minnesota Wild"), ("NY Rangers", "New York Rangers"),
+     ("Tampa Bay", "Tampa Bay Lightning"), ("Toronto", "Toronto Maple Leafs")],
+)
+def test_kalshi_short_names_match_full_names(label, team):
+    markets = game_markets("KXNHLGAME-26OCT06XXXYYY", ("A", label), ("B", "Chicago"))
+    r = resolve(markets, snap(team, "Chicago Blackhawks", team))
+    assert r is not None and r.ticker == "KXNHLGAME-26OCT06XXXYYY-A"
+
+
+def test_shared_city_label_is_ambiguous():
+    markets = game_markets("KXNHLGAME-26OCT06NYRNYI", ("NY", "New York"), ("NYI", "NY Islanders"))
+    assert resolve(markets, snap("New York Islanders", "New York Rangers", "New York Rangers")) is None
 
 
 def test_soccer_tie_market_is_ignored():
-    markets = [
-        market("S-ARS", "S-1", "Arsenal vs Chelsea", "Arsenal"),
-        market("S-TIE", "S-1", "Arsenal vs Chelsea", "Tie"),
-        market("S-CHE", "S-1", "Arsenal vs Chelsea", "Chelsea"),
-    ]
-    r = resolve(markets, snap("Arsenal", "Chelsea", "Chelsea", sport="soccer"))
-    assert r.ticker == "S-CHE"
+    markets = game_markets("KXSOCCERGAME-26OCT06ARSCHE", ("ARS", "Arsenal"), ("TIE", "Tie"), ("CHE", "Chelsea"))
+    game = snap("Arsenal", "Chelsea", "Chelsea", start="2026-10-06T14:00:00Z", sport="soccer")
+    assert resolve(markets, game).ticker == "KXSOCCERGAME-26OCT06ARSCHE-CHE"
 
 
-def test_same_city_teams_use_nickname():
-    markets = [
-        market("R", "NY", "New York R vs New York I", "Rangers"),
-        market("I", "NY", "New York R vs New York I", "Islanders"),
-    ]
-    r = resolve(markets, snap("New York Islanders", "New York Rangers", "New York Rangers"))
-    assert r.ticker == "R"
-
-
-def test_same_city_ambiguous_yes_is_skipped():
-    markets = [market("X", "NY", "Rangers vs Islanders", "New York")]
-    assert resolve(markets, snap("New York Islanders", "New York Rangers", "New York Rangers")) is None
+def test_event_and_game_dates():
+    assert event_date("KXNHLGAME-26OCT06MINBUF") == date(2026, 10, 6)
+    assert event_date("no-date-here") is None
+    # 7pm ET game on Oct 6 is 23:00 UTC; a 10:30pm ET game is 02:30 UTC Oct 7.
+    assert game_date(snap("a", "b", "a", start="2026-10-06T23:00:00Z")) == date(2026, 10, 6)
+    assert game_date(snap("a", "b", "a", start="2026-10-07T02:30:00.000Z")) == date(2026, 10, 6)
+    # An EPL 7:30am ET kickoff is 11:30 UTC.
+    assert game_date(snap("a", "b", "a", start="2026-10-06T11:30:00Z")) == date(2026, 10, 6)
 
 
 def test_iter_markets_follows_cursor(monkeypatch):

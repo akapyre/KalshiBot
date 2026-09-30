@@ -1,22 +1,30 @@
 """Maps a live game to the Kalshi market to buy for the pregame favorite.
 
-Kalshi game-winner markets live under a series ticker per league (e.g.
-KXNFLGAME). The assumed layout -- unverified against real data at the time
-of writing; run `python -m kalshibot.diagnose markets <sport>` to check --
-is one market per team per game, all sharing an event_ticker, with the
-team that "yes" pays out on named in yes_sub_title.
+Kalshi's game-winner layout, confirmed against real KXNHLGAME data on
+2026-09-29 (`python -m kalshibot.diagnose markets <sport>` shows it):
 
-Safety rule: the bot only ever buys YES on a market that clearly names the
-favorite as its yes outcome. It never infers the favorite's side by buying
-NO on the other team's market (in soccer, NO on "underdog wins" also pays
-on a draw, so that's a different bet), and when anything is ambiguous it
-skips rather than guesses.
+    event_ticker   KXNHLGAME-26OCT06MINBUF        one event per game, dated
+    ticker         KXNHLGAME-26OCT06MINBUF-MIN    one market per team
+    title          "Minnesota wins"
+    yes_sub_title  "Minnesota"                    short name, one team only
+
+So a game is found by grouping markets into events, identifying which
+team each market's yes_sub_title names, and requiring the date in the
+event ticker to match the game's date -- the same two teams can have
+several open events at once. Other sports are assumed to follow the same
+layout until checked with the diagnostic.
+
+Safety rule: the bot only ever buys YES on the market that clearly names
+the favorite. It never buys NO on the other team (in soccer that also
+pays on a draw), and when anything is ambiguous it skips.
 """
 from __future__ import annotations
 
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from .kalshi_client import KalshiClient
@@ -25,53 +33,65 @@ from .odds_providers.base import GameSnapshot, Sport
 logger = logging.getLogger("kalshibot.matching")
 
 SERIES_BY_SPORT: dict[Sport, str] = {
-    # All unverified guesses -- confirm with `diagnose markets <sport>`.
+    "nhl": "KXNHLGAME",      # confirmed 2026-09-29
+    # Unverified guesses -- confirm with `diagnose markets <sport>`.
     "nfl": "KXNFLGAME",
     "soccer": "KXSOCCERGAME",
     "tennis": "KXTENNISGAME",
     "mlb": "KXMLBGAME",
     "cfb": "KXNCAAFGAME",
-    "nhl": "KXNHLGAME",
 }
+
+_EVENT_DATE_RE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})")
+_MONTHS = {m: i for i, m in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
 
 
 def _normalize(text: str) -> str:
     return re.sub(r"[^a-z]", "", text.lower())
 
 
-def _team_tokens(team: str) -> tuple[list[str], list[str]]:
-    """(specific, city) name forms: "Edmonton Oilers" ->
-    (["edmontonoilers", "oilers"], ["edmonton"]). City forms are kept
-    separate because they can collide (New York Rangers vs Islanders)."""
-    words = team.split()
-    specific = [_normalize(team)]
-    city = []
-    if len(words) > 1:
-        specific.append(_normalize(words[-1]))
-        city.append(_normalize(" ".join(words[:-1])))
-    return [t for t in specific if len(t) >= 3], [t for t in city if len(t) >= 3]
-
-
-def _mentions(text: str, team: str, include_city: bool = True) -> bool:
-    specific, city = _team_tokens(team)
-    tokens = specific + city if include_city else specific
-    return any(t in text for t in tokens)
-
-
-def _market_text(market: dict[str, Any]) -> str:
-    fields = ("title", "subtitle", "yes_sub_title", "no_sub_title")
-    return _normalize(" ".join(str(market.get(f) or "") for f in fields))
-
-
-def _yes_team_is(market: dict[str, Any], team: str, other: str) -> bool:
-    yes = _normalize(str(market.get("yes_sub_title") or ""))
-    if not yes:
+def _label_names(label: str, team: str) -> bool:
+    """Does a Kalshi short name ("Vegas", "St. Louis", "NY Rangers") refer
+    to this full team name ("Vegas Golden Knights")?"""
+    lab = _normalize(label)
+    if len(lab) < 3:
         return False
-    # Prefer the nickname/full name; fall back to the city only when it
-    # identifies exactly one of the two teams.
-    if _mentions(yes, team, include_city=False) or _mentions(yes, other, include_city=False):
-        return _mentions(yes, team, include_city=False) and not _mentions(yes, other, include_city=False)
-    return _mentions(yes, team) and not _mentions(yes, other)
+    words = team.split()
+    specific = [_normalize(team)] + ([_normalize(words[-1])] if len(words) > 1 else [])
+    return lab in _normalize(team) or any(len(t) >= 3 and t in lab for t in specific)
+
+
+def _label_side(label: str, home: str, away: str) -> str | None:
+    """"home"/"away" if the label names exactly one of the two teams."""
+    h, a = _label_names(label, home), _label_names(label, away)
+    if h and not a:
+        return "home"
+    if a and not h:
+        return "away"
+    return None
+
+
+def event_date(event_ticker: str) -> date | None:
+    match = _EVENT_DATE_RE.search(event_ticker or "")
+    if not match or match.group(2) not in _MONTHS:
+        return None
+    yy, mon, dd = match.groups()
+    try:
+        return date(2000 + int(yy), _MONTHS[mon], int(dd))
+    except ValueError:
+        return None
+
+
+def game_date(snapshot: GameSnapshot) -> date | None:
+    """The game's US calendar date. Kickoff times are UTC; shifting back 6
+    hours puts every US evening game (up to ~midnight Eastern) and every
+    European daytime match on its local date."""
+    try:
+        start = datetime.fromisoformat(snapshot.start_time_utc.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (start - timedelta(hours=6)).date()
 
 
 @dataclass
@@ -84,16 +104,18 @@ class MarketMatcher:
     def __init__(self, kalshi_client: KalshiClient):
         self._kalshi = kalshi_client
 
-    def game_markets(self, snapshot: GameSnapshot) -> list[dict[str, Any]]:
-        """Open markets in the sport's series that mention both teams."""
+    def candidate_events(self, snapshot: GameSnapshot) -> dict[str, dict[str, dict[str, Any]]]:
+        """Open events between these two teams, on any date:
+        {event_ticker: {"home": market, "away": market}}."""
         series_ticker = SERIES_BY_SPORT.get(snapshot.sport)
         if series_ticker is None:
-            return []
-        return [
-            m for m in self._kalshi.iter_markets(series_ticker=series_ticker, status="open")
-            if _mentions(_market_text(m), snapshot.home_team)
-            and _mentions(_market_text(m), snapshot.away_team)
-        ]
+            return {}
+        by_event: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+        for m in self._kalshi.iter_markets(series_ticker=series_ticker, status="open"):
+            side = _label_side(str(m.get("yes_sub_title") or ""), snapshot.home_team, snapshot.away_team)
+            if side is not None:
+                by_event[m.get("event_ticker") or ""][side] = m
+        return {e: sides for e, sides in by_event.items() if "home" in sides and "away" in sides}
 
     def resolve(self, snapshot: GameSnapshot) -> ResolvedMarket | None:
         game = f"{snapshot.away_team} @ {snapshot.home_team}"
@@ -101,27 +123,20 @@ class MarketMatcher:
             logger.warning("No Kalshi series mapped for sport=%s", snapshot.sport)
             return None
 
-        markets = self.game_markets(snapshot)
-        if not markets:
+        events = self.candidate_events(snapshot)
+        if not events:
             logger.warning("No Kalshi market matched %s -- skipping, will not guess", game)
             return None
 
-        events = {m.get("event_ticker") for m in markets}
-        if len(events) > 1:
+        day = game_date(snapshot)
+        same_day = [e for e in events if day is not None and event_date(e) == day]
+        if len(same_day) != 1:
             logger.warning(
-                "AMBIGUOUS: %s matches %d different Kalshi events %s -- skipping",
-                game, len(events), sorted(e or "?" for e in events),
+                "%s: need exactly one Kalshi event dated %s, found %d (open events for "
+                "these teams: %s) -- skipping",
+                game, day, len(same_day), sorted(events),
             )
             return None
 
-        underdog = snapshot.away_team if snapshot.favorite_team == snapshot.home_team else snapshot.home_team
-        favorite_yes = [m for m in markets if _yes_team_is(m, snapshot.favorite_team, underdog)]
-        if len(favorite_yes) != 1:
-            logger.warning(
-                "Found %d Kalshi market(s) for %s but %d name %s as the YES outcome "
-                "-- skipping rather than guess the side",
-                len(markets), game, len(favorite_yes), snapshot.favorite_team,
-            )
-            return None
-
-        return ResolvedMarket(ticker=favorite_yes[0]["ticker"], side="yes")
+        fav_side = "home" if snapshot.favorite_team == snapshot.home_team else "away"
+        return ResolvedMarket(ticker=events[same_day[0]][fav_side]["ticker"], side="yes")
