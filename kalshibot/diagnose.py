@@ -1,11 +1,14 @@
 """Show what the bot sees for one sport right now, game by game.
 
-Usage: python -m kalshibot.diagnose nfl   (or soccer / mlb / cfb)
+Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose kalshi
+       python -m kalshibot.diagnose markets nhl   (or any sport above)
 
 Runs the exact same query and parsing as the live bot, then prints each
 event with the reason it is or isn't counted as a live game. "kalshi"
 instead checks which Kalshi API address accepts your credentials.
+"markets" shows the Kalshi markets for a sport and which one the bot would
+buy for each of today's games.
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ load_dotenv()
 
 from .kalshi_client import KalshiClient
 from .main import build_kalshi_client
+from .matching import SERIES_BY_SPORT, MarketMatcher
 from .odds_providers.sportsgameodds import LEAGUE_IDS, SportsGameOddsProvider
 
 KALSHI_CANDIDATE_URLS = [
@@ -53,10 +57,67 @@ def check_kalshi() -> None:
     )
 
 
+SERIES_KEYWORDS = {
+    "nhl": ["nhl", "hockey"],
+    "nfl": ["nfl", "profootball"],
+    "mlb": ["mlb", "baseball"],
+    "cfb": ["ncaaf", "collegefootball"],
+    "soccer": ["soccer", "premier", "laliga", "bundesliga", "seriea", "ligue"],
+}
+
+MARKET_FIELDS = ("ticker", "event_ticker", "title", "subtitle", "yes_sub_title", "no_sub_title", "close_time")
+
+
+def check_markets(sport: str) -> None:
+    kalshi = build_kalshi_client(demo=False)
+    matcher = MarketMatcher(kalshi)
+    series = SERIES_BY_SPORT.get(sport)
+    markets = kalshi.iter_markets(series_ticker=series, status="open")
+    print(f"Kalshi series {series}: {len(markets)} open markets\n")
+
+    if not markets:
+        print("That series has no open markets -- it may be the wrong ticker. Kalshi sports series:")
+        try:
+            all_series = kalshi.list_series(category="Sports").get("series", [])
+        except Exception as e:
+            print(f"  (couldn't list series: {e})")
+            all_series = []
+        keywords = SERIES_KEYWORDS.get(sport, [sport])
+        for s in all_series:
+            text = (s.get("ticker", "") + " " + s.get("title", "")).lower().replace(" ", "")
+            if any(k in text for k in keywords):
+                print(f"  {s.get('ticker')}: {s.get('title')}")
+        return
+
+    print("Sample markets (to check how Kalshi names teams):")
+    for m in markets[:4]:
+        print(json.dumps({f: m.get(f) for f in MARKET_FIELDS}, indent=2))
+
+    provider = SportsGameOddsProvider()
+    print("\nWhat the bot would buy for each of today's games:")
+    for event in provider.fetch_events(sport):
+        snap = provider._parse_event(sport, event) if event.get("type") == "match" else None
+        if snap is None or snap.is_final:
+            continue
+        game = f"{snap.away_team} @ {snap.home_team} (fav {snap.favorite_team})"
+        found = matcher.game_markets(snap)
+        resolved = matcher.resolve(snap)
+        choice = f"BUY YES {resolved.ticker}" if resolved else "SKIP"
+        yes_names = ", ".join(str(m.get("yes_sub_title")) for m in found) or "-"
+        print(f"  {game}: {len(found)} market(s) [yes = {yes_names}] -> {choice}")
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
         check_kalshi()
+        return
+    if sport == "markets":
+        target = sys.argv[2] if len(sys.argv) > 2 else "nhl"
+        if target not in SERIES_BY_SPORT:
+            print(f"Unknown sport {target!r}; pick one of: {', '.join(SERIES_BY_SPORT)}")
+            return
+        check_markets(target)
         return
     if sport not in LEAGUE_IDS:
         print(f"Unknown sport {sport!r}; pick one of: {', '.join(LEAGUE_IDS)}")

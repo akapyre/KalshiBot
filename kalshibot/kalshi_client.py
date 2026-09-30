@@ -105,6 +105,21 @@ class KalshiClient:
     def list_markets(self, **params: Any) -> dict[str, Any]:
         return self._request("GET", "/markets", params=params)
 
+    def iter_markets(self, max_pages: int = 10, **params: Any) -> list[dict[str, Any]]:
+        """All markets matching params, following Kalshi's `cursor` paging."""
+        markets: list[dict[str, Any]] = []
+        cursor = None
+        for _ in range(max_pages):
+            page = self.list_markets(limit=1000, **params, **({"cursor": cursor} if cursor else {}))
+            markets.extend(page.get("markets", []))
+            cursor = page.get("cursor")
+            if not cursor:
+                break
+        return markets
+
+    def list_series(self, **params: Any) -> dict[str, Any]:
+        return self._request("GET", "/series", params=params)
+
     def get_orderbook(self, ticker: str) -> dict[str, Any]:
         return self._request("GET", f"/markets/{ticker}/orderbook")
 
