@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from .executor import Executor
+from .executor import Executor, yes_ask_cents
 from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, KalshiCredentials
 from .matching import MarketMatcher
 from .odds_providers.base import Sport
@@ -100,14 +100,21 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                         if resolved is None:
                             continue  # already logged by matcher; never guess a ticker
 
-                        market = kalshi.get_market(resolved.ticker)
-                        yes_price = market.get("market", {}).get("yes_bid", 50)
+                        market = kalshi.get_market(resolved.ticker).get("market", {})
+                        ask = yes_ask_cents(market)
+                        if ask is None:
+                            # Never price off a made-up number; not recorded, so it retries.
+                            logger.warning(
+                                "No YES ask on %s right now (fields: %s) -- will retry next cycle",
+                                resolved.ticker, sorted(k for k in market if "yes" in k or "price" in k),
+                            )
+                            continue
 
                         executor.execute(
                             decision,
                             ticker=resolved.ticker,
                             side=resolved.side,
-                            yes_price_cents=yes_price,
+                            yes_price_cents=ask,
                             open_position_count=get_open_position_count(kalshi),
                             realized_pnl_today_usd=0.0,  # TODO: wire up settlement P&L once daily_loss_cap is enabled
                         )

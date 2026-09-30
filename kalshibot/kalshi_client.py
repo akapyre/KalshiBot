@@ -141,6 +141,7 @@ class KalshiClient:
         order_type: str = "market",
         yes_price: int | None = None,
         no_price: int | None = None,
+        time_in_force: str | None = None,   # e.g. "immediate_or_cancel"
         client_order_id: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -155,6 +156,8 @@ class KalshiClient:
             body["yes_price"] = yes_price
         if no_price is not None:
             body["no_price"] = no_price
+        if time_in_force is not None:
+            body["time_in_force"] = time_in_force
         return self._request("POST", "/portfolio/orders", json_body=body, auth=True)
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:

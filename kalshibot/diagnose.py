@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from .executor import yes_ask_cents
 from .kalshi_client import KalshiClient
 from .main import build_kalshi_client
 from .matching import SERIES_BY_SPORT, MarketMatcher, event_date, game_date
@@ -92,6 +93,9 @@ def check_markets(sport: str) -> None:
     print("Sample markets (to check how Kalshi names teams):")
     for m in markets[:4]:
         print(json.dumps({f: m.get(f) for f in MARKET_FIELDS}, indent=2))
+    print("\nPrice fields on the first market (the bot buys at the YES ask):")
+    print(json.dumps({k: v for k, v in markets[0].items() if "yes" in k or "no_" in k or "price" in k}, indent=2))
+    print(f"  -> bot reads YES ask as {yes_ask_cents(markets[0])}¢")
 
     provider = SportsGameOddsProvider()
     print("\nWhat the bot would buy for each of today's games:")
@@ -129,6 +133,7 @@ def main() -> None:
 
     counts: dict[str, int] = {}
     sample_live_status = None
+    sample_live_odds = None
     for event in events:
         status = event.get("status", {})
         teams = event.get("teams", {})
@@ -143,6 +148,10 @@ def main() -> None:
         elif snap.is_live:
             verdict = "COUNTED AS LIVE"
             sample_live_status = sample_live_status or status
+            sample_live_odds = sample_live_odds or {
+                k: v for k, v in event.get("odds", {}).items()
+                if v.get("periodID") == "game" and v.get("betTypeID") == "ml"
+            }
         elif snap.is_final:
             verdict = "finished"
         else:
@@ -168,6 +177,10 @@ def main() -> None:
     if sample_live_status is not None:
         print("\nRaw status of one live game:")
         print(json.dumps(sample_live_status, indent=2))
+        # Shows whether the moneyline actually moves in-game (check the
+        # per-bookmaker lastUpdatedAt times against the clock).
+        print("\nRaw moneyline odds of that game:")
+        print(json.dumps(sample_live_odds, indent=2))
 
 
 if __name__ == "__main__":
