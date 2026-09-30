@@ -34,11 +34,11 @@ logger = logging.getLogger("kalshibot.matching")
 
 SERIES_BY_SPORT: dict[Sport, str] = {
     "nhl": "KXNHLGAME",      # confirmed 2026-09-29
+    "mlb": "KXMLBGAME",      # confirmed 2026-09-29 (tickers add a start time: 26SEP292000)
     # Unverified guesses -- confirm with `diagnose markets <sport>`.
     "nfl": "KXNFLGAME",
     "soccer": "KXSOCCERGAME",
     "tennis": "KXTENNISGAME",
-    "mlb": "KXMLBGAME",
     "cfb": "KXNCAAFGAME",
 }
 

@@ -97,6 +97,17 @@ def test_soccer_tie_market_is_ignored():
     assert resolve(markets, game).ticker == "KXSOCCERGAME-26OCT06ARSCHE-CHE"
 
 
+def test_mlb_layout_with_start_time_and_short_city_letter():
+    markets = (
+        game_markets("KXMLBGAME-26SEP292200CHCSD", ("SD", "San Diego"), ("CHC", "Chicago C"))
+        + game_markets("KXMLBGAME-26SEP302200CHCSD", ("SD", "San Diego"), ("CHC", "Chicago C"))
+    )
+    game = snap("San Diego Padres", "Chicago Cubs", "Chicago Cubs", start="2026-09-30T02:00:00Z", sport="mlb")
+    assert resolve(markets, game).ticker == "KXMLBGAME-26SEP292200CHCSD-CHC"
+    white_sox = snap("San Diego Padres", "Chicago White Sox", "San Diego Padres", start="2026-09-30T02:00:00Z", sport="mlb")
+    assert resolve(markets, white_sox) is None
+
+
 def test_event_and_game_dates():
     assert event_date("KXNHLGAME-26OCT06MINBUF") == date(2026, 10, 6)
     assert event_date("no-date-here") is None
