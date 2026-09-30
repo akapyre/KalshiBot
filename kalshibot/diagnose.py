@@ -150,7 +150,7 @@ def main() -> None:
             sample_live_status = sample_live_status or status
             sample_live_odds = sample_live_odds or {
                 k: v for k, v in event.get("odds", {}).items()
-                if v.get("periodID") == "game" and v.get("betTypeID") == "ml"
+                if v.get("statID") == "points" and v.get("periodID") == "game" and v.get("betTypeID") == "ml"
             }
         elif snap.is_final:
             verdict = "finished"

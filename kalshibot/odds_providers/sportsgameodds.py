@@ -153,15 +153,25 @@ class SportsGameOddsProvider:
             away_name = away["names"]["long"]
 
             home_ml = away_ml = None
+            close: dict[str, int] = {}
             for odd in event.get("odds", {}).values():
-                if odd.get("periodID") != "game" or odd.get("betTypeID") != "ml":
+                # Only the game-winner line. Other stats share the "ml" bet
+                # type -- "Shots On Goal Moneyline" (statID shots_onGoal) and
+                # "First Goal Moneyline" were being read as the moneyline,
+                # which is where Edmonton's frozen -770 came from.
+                if (odd.get("statID") != "points" or odd.get("periodID") != "game"
+                        or odd.get("betTypeID") != "ml"):
                     continue
+                side = odd.get("sideID")
+                closing = odd.get("closeBookOdds") or odd.get("closeFairOdds")
+                if closing is not None and side in ("home", "away"):
+                    close[side] = int(closing)
                 price = odd.get("bookOdds") or odd.get("fairOdds")
                 if price is None:
                     continue
-                if odd.get("sideID") == "home":
+                if side == "home":
                     home_ml = int(price)
-                elif odd.get("sideID") == "away":
+                elif side == "away":
                     away_ml = int(price)
 
             if home_ml is None or away_ml is None:
@@ -185,6 +195,11 @@ class SportsGameOddsProvider:
             if not _has_started(status):
                 fav_side = "home" if home_ml < away_ml else "away"
                 pregame_odds = home_ml if fav_side == "home" else away_ml
+            elif len(close) == 2:
+                # The provider's own closing line -- the true pregame price,
+                # available even when the bot was started mid-game.
+                fav_side = "home" if close["home"] < close["away"] else "away"
+                pregame_odds = close[fav_side]
             else:
                 stored = self._pregame_store.get(game_id)
                 if stored is not None:

@@ -15,7 +15,14 @@ from kalshibot.odds_providers.sportsgameodds import (
 from kalshibot.state import PregameOddsStore
 
 
-def event(home_ml, away_ml, started, live, home_score=0, away_score=0):
+def event(home_ml, away_ml, started, live, home_score=0, away_score=0, close=None, extra_odds=None):
+    odds = {
+        "h": {"statID": "points", "periodID": "game", "betTypeID": "ml", "sideID": "home", "bookOdds": str(home_ml)},
+        "a": {"statID": "points", "periodID": "game", "betTypeID": "ml", "sideID": "away", "bookOdds": str(away_ml)},
+    }
+    if close:
+        odds["h"]["closeBookOdds"], odds["a"]["closeBookOdds"] = str(close[0]), str(close[1])
+    odds.update(extra_odds or {})
     return {
         "eventID": "g1",
         "type": "match",
@@ -24,10 +31,7 @@ def event(home_ml, away_ml, started, live, home_score=0, away_score=0):
             "away": {"names": {"long": "Dolphins"}, "score": away_score},
         },
         "status": {"started": started, "live": live, "currentPeriodID": "2q" if live else ""},
-        "odds": {
-            "h": {"periodID": "game", "betTypeID": "ml", "sideID": "home", "bookOdds": str(home_ml)},
-            "a": {"periodID": "game", "betTypeID": "ml", "sideID": "away", "bookOdds": str(away_ml)},
-        },
+        "odds": odds,
     }
 
 
@@ -55,6 +59,36 @@ def test_game_first_seen_live_has_no_baseline(provider):
     provider.fetch_events = lambda sport: [event(-200, 170, started=True, live=True)]
     [snap] = provider.list_live_games("nfl")
     assert snap.pregame_favorite_odds is None
+
+
+SHOTS_ON_GOAL = {
+    "sh": {"statID": "shots_onGoal", "periodID": "game", "betTypeID": "ml", "sideID": "home", "bookOdds": "-770"},
+    "sa": {"statID": "shots_onGoal", "periodID": "game", "betTypeID": "ml", "sideID": "away", "bookOdds": "+470"},
+}
+
+
+def test_other_stat_moneylines_are_ignored(provider):
+    # Real Oilers-Canucks data: the shots-on-goal "moneyline" is -770 while
+    # the actual game line is +100 with Edmonton trailing.
+    provider.fetch_events = lambda sport: [
+        event(+100, -128, started=True, live=True, close=(-307, +250), extra_odds=SHOTS_ON_GOAL)
+    ]
+    [snap] = provider.list_live_games("nhl")
+    assert snap.live_favorite_odds == 100
+    assert snap.pregame_favorite_odds == -307
+
+
+def test_closing_line_beats_a_stale_stored_pregame(provider):
+    provider._pregame_store.set("g1", "home", -770)
+    provider.fetch_events = lambda sport: [event(+100, -128, started=True, live=True, close=(-307, +250))]
+    [snap] = provider.list_live_games("nhl")
+    assert (snap.favorite_team, snap.pregame_favorite_odds) == ("Chiefs", -307)
+
+
+def test_closing_line_gives_a_baseline_when_started_mid_game(provider):
+    provider.fetch_events = lambda sport: [event(+150, -180, started=True, live=True, close=(+120, -140))]
+    [snap] = provider.list_live_games("nfl")
+    assert (snap.favorite_team, snap.pregame_favorite_odds, snap.live_favorite_odds) == ("Dolphins", -140, -180)
 
 
 def test_started_but_not_live_does_not_overwrite_pregame(provider):
