@@ -3,6 +3,7 @@
 Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose kalshi
        python -m kalshibot.diagnose markets nhl   (or any sport above)
+       python -m kalshibot.diagnose order         (test order that won't fill)
 
 Runs the exact same query and parsing as the live bot, then prints each
 event with the reason it is or isn't counted as a live game. "kalshi"
@@ -111,10 +112,40 @@ def check_markets(sport: str) -> None:
         print(f"  {game}\n      Kalshi events for these teams: {found}\n      -> {choice}")
 
 
+def check_order() -> None:
+    """Send one real order Kalshi will not fill: buy 1 YES at 1¢, cancelled
+    at once unless someone sells at 1¢. Proves the key may trade and the
+    order format is accepted, without spending money (worst case 1¢)."""
+    kalshi = build_kalshi_client(demo=False)
+    print("Balance:", kalshi.get_balance())
+    market = next(
+        (m for m in kalshi.iter_markets(max_pages=1, series_ticker=SERIES_BY_SPORT["nhl"], status="open")
+         if (yes_ask_cents(m) or 0) > 1),
+        None,
+    )
+    if market is None:
+        print("No open NHL market with a YES ask above 1¢ to test against.")
+        return
+    print(f"Test order: buy 1 YES on {market['ticker']} at 1¢ (ask is {yes_ask_cents(market)}¢), immediate-or-cancel")
+    try:
+        response = kalshi.create_order(
+            ticker=market["ticker"], side="yes", action="buy", count=1, order_type="limit",
+            yes_price_dollars="0.0100", time_in_force="immediate_or_cancel",
+        )
+    except requests.HTTPError as e:
+        print(f"REJECTED: HTTP {e.response.status_code} {e.response.text[:500]}")
+        return
+    print("ACCEPTED -- live orders will work. Kalshi's reply:")
+    print(json.dumps(response, indent=2))
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
         check_kalshi()
+        return
+    if sport == "order":
+        check_order()
         return
     if sport == "markets":
         target = sys.argv[2] if len(sys.argv) > 2 else "nhl"

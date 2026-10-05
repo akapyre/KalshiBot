@@ -123,7 +123,9 @@ class Executor:
                 action="buy",
                 count=count,
                 order_type="limit",
-                yes_price=yes_price_cents,
+                # Kalshi now quotes prices only as dollar strings (no cent
+                # fields in market data), so orders use the same form.
+                yes_price_dollars=f"{yes_price_cents / 100:.4f}",
                 time_in_force="immediate_or_cancel",
             )
             filled = _filled_count(response)

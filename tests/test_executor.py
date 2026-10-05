@@ -58,7 +58,7 @@ def test_live_order_is_ioc_limit_at_ask_within_stake(tmp_path, monkeypatch):
     run(executor, price=70)
     [order] = kalshi.orders
     assert order["order_type"] == "limit" and order["time_in_force"] == "immediate_or_cancel"
-    assert order["yes_price"] == 70 and order["count"] == 21   # 21 x 70¢ = $14.70 <= $15
+    assert order["yes_price_dollars"] == "0.7000" and order["count"] == 21   # 21 x 70¢ = $14.70 <= $15
     assert state.has_fired("g", "r")
 
 

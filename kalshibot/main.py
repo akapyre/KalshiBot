@@ -72,6 +72,18 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
         "KalshiBot starting: dry_run=%s demo_env=%s stake=$%.2f loss_cap=%s max_positions=%s",
         dry_run, demo, stake_usd, risk.config.daily_loss_cap_usd, risk.config.max_concurrent_positions,
     )
+    if not dry_run:
+        if executor._trading_enabled():
+            logger.info("LIVE MODE: real orders WILL be placed")
+        else:
+            logger.warning(
+                "--live was passed but %s is not true in .env -- orders will only be logged",
+                risk.config.trading_enabled_env_var,
+            )
+        try:
+            logger.info("Kalshi balance: %s", kalshi.get_balance())
+        except Exception as e:
+            logger.warning("Could not read Kalshi balance: %s", e)
 
     while True:
         live_counts: dict[str, int] = {}
@@ -118,11 +130,14 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                             open_position_count=get_open_position_count(kalshi),
                             realized_pnl_today_usd=0.0,  # TODO: wire up settlement P&L once daily_loss_cap is enabled
                         )
-                    except Exception:
+                    except Exception as e:
                         # Not recorded as fired, so it retries next cycle.
+                        # Kalshi explains rejections (e.g. insufficient
+                        # balance) in the response body, so show it.
+                        body = getattr(getattr(e, "response", None), "text", "")
                         logger.exception(
-                            "Kalshi step failed for %s (%s) -- will retry next cycle",
-                            decision.rule_id, decision.team,
+                            "Kalshi step failed for %s (%s) -- will retry next cycle %s",
+                            decision.rule_id, decision.team, body[:300],
                         )
 
         logger.info("Poll cycle done: %s", live_counts or "no sports queried successfully")
