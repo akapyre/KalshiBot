@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from .executor import Executor, yes_ask_cents
+from .executor import Executor, american_odds, yes_ask_cents
 from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, KalshiCredentials
 from .matching import MarketMatcher
 from .odds_providers.base import Sport
@@ -119,6 +119,14 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                             logger.warning(
                                 "No YES ask on %s right now (fields: %s) -- will retry next cycle",
                                 resolved.ticker, sorted(k for k in market if "yes" in k or "price" in k),
+                            )
+                            continue
+
+                        problem = engine.kalshi_price_problem(decision.rule_id, ask)
+                        if problem:
+                            logger.warning(
+                                "SKIPPED %s on %s: Kalshi price %d¢ (%+d) is %s -- will re-check next cycle",
+                                decision.rule_id, decision.team, ask, american_odds(ask), problem,
                             )
                             continue
 

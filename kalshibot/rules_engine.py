@@ -139,6 +139,29 @@ def _invalidated(rule: Rule, snapshot: GameSnapshot) -> bool:
     return False
 
 
+def _cents_for_odds(odds: int) -> float:
+    """American odds -> the equivalent Kalshi price in cents."""
+    return 100 * (-odds / (-odds + 100) if odds < 0 else 100 / (odds + 100))
+
+
+# Kalshi's ask sits a little above the sportsbook price (the spread), so
+# the "no shorter than" side of a band gets this much slack.
+PRICE_FLOOR_SLACK_CENTS = 2
+
+
+def kalshi_price_problem(rule: Rule, ask_cents: int) -> str | None:
+    """Why buying at this Kalshi price would break the rule's odds band, or
+    None if it's fine. The sportsbook feed can lag the game (a Dodgers
+    trigger at +115 found Kalshi at 26c = +285), so the price actually paid
+    has to respect the same limits -- "not past +200" means not past +200."""
+    ceilings = [o for o in (rule.trigger_max, rule.odds_beyond_invalidate) if o is not None]
+    if ceilings and ask_cents < _cents_for_odds(min(ceilings)):
+        return f"past the rule's {min(ceilings):+d} limit"
+    if rule.trigger_min is not None and ask_cents > _cents_for_odds(rule.trigger_min) + PRICE_FLOOR_SLACK_CENTS:
+        return f"shorter than the rule's {rule.trigger_min:+d} entry"
+    return None
+
+
 class RulesEngine:
     def __init__(
         self,
@@ -149,6 +172,10 @@ class RulesEngine:
         self._rules = rules
         self._stake_usd = stake_usd
         self._state = state_store
+
+    def kalshi_price_problem(self, rule_id: str, ask_cents: int) -> str | None:
+        rule = next((r for r in self._rules if r.id == rule_id), None)
+        return kalshi_price_problem(rule, ask_cents) if rule else None
 
     def evaluate(self, snapshot: GameSnapshot) -> list[BetDecision]:
         decisions: list[BetDecision] = []

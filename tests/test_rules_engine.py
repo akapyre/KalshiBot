@@ -298,3 +298,25 @@ def test_nhl_last_six_minutes_blocked(engine, period, seconds, fires):
     eng, _ = engine
     decisions = eng.evaluate(nhl(period=period, seconds_remaining=seconds))
     assert bool(decisions) is fires
+
+
+@pytest.mark.parametrize(
+    "rule_id, ask, ok",
+    [
+        ("mlb_favorite_fade", 41, True),        # +144, inside +100..+200
+        ("mlb_favorite_fade", 26, False),       # +285, past +200 (the real Dodgers case)
+        ("mlb_favorite_fade", 33, False),       # +203, just past +200
+        ("mlb_favorite_fade", 34, True),        # +194
+        ("mlb_favorite_fade", 52, True),        # -108, within the 2c spread allowance of +100
+        ("mlb_favorite_fade", 55, False),       # -122, clearly shorter than +100
+        ("nfl_moderate_favorite", 40, True),    # +150, the real Detroit fill
+        ("nfl_favorite_fade", 55, True),        # -122 vs -115 entry (53.5c + 2c)
+        ("nfl_favorite_fade", 60, False),       # -150
+        ("nfl_favorite_fade", 10, True),        # no ceiling on this rule
+        ("nhl_favorite_trails_by_one", 90, True),  # score-based rule, no odds band
+    ],
+)
+def test_kalshi_price_must_respect_the_rule_band(tmp_path, rule_id, ask, ok):
+    rules, stake = load_rules(RULES_PATH)
+    engine = RulesEngine(rules, stake, BetStateStore(tmp_path / "b.json"))
+    assert (engine.kalshi_price_problem(rule_id, ask) is None) == ok
