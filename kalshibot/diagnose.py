@@ -96,7 +96,7 @@ def check_markets(sport: str) -> None:
     for m in markets[:4]:
         print(json.dumps({f: m.get(f) for f in MARKET_FIELDS}, indent=2))
     print("\nPrice fields on the first market (the bot buys at the YES ask):")
-    print(json.dumps({k: v for k, v in markets[0].items() if "yes" in k or "no_" in k or "price" in k}, indent=2))
+    print(json.dumps({k: v for k, v in markets[0].items() if "yes" in k or "no_" in k or "price" in k or "exchange" in k}, indent=2))
     print(f"  -> bot reads YES ask as {yes_ask_cents(markets[0])}¢")
 
     provider = SportsGameOddsProvider()
