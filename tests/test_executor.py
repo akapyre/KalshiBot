@@ -83,5 +83,6 @@ def test_v2_order_request_body(monkeypatch):
     client.create_order(ticker="T", count=34, price_dollars="0.4400")
     assert (sent["method"], sent["path"]) == ("POST", "/portfolio/events/orders")
     body = sent["json_body"]
-    assert {k: body[k] for k in ("ticker", "side", "count", "price", "time_in_force")} == {
-        "ticker": "T", "side": "bid", "count": "34.00", "price": "0.4400", "time_in_force": "immediate_or_cancel"}
+    assert {k: body[k] for k in ("ticker", "side", "count", "price", "time_in_force", "self_trade_prevention_type")} == {
+        "ticker": "T", "side": "bid", "count": "34.00", "price": "0.4400", "time_in_force": "immediate_or_cancel",
+        "self_trade_prevention_type": "taker_at_cross"}

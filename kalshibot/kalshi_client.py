@@ -152,6 +152,9 @@ class KalshiClient:
             "count": f"{count:.2f}",
             "price": price_dollars,
             "time_in_force": time_in_force,
+            # Required by V2 (400 missing_parameters without it). Only
+            # matters if we ever trade against our own resting order.
+            "self_trade_prevention_type": "taker_at_cross",
         }
         return self._request("POST", "/portfolio/events/orders", json_body=body, auth=True)
 
