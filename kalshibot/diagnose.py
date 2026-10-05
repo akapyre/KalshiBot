@@ -180,7 +180,7 @@ def check_transfer(destination: int, amount: str) -> None:
 
     show("Before:")
     try:
-        print("Kalshi's reply:", kalshi.transfer_between_exchanges(float(amount), 0, destination))
+        print("Kalshi's reply:", kalshi.transfer_between_exchanges(int(amount), 0, destination))
     except requests.HTTPError as e:
         print(f"REJECTED: HTTP {e.response.status_code} {e.response.text[:500]}")
         return
