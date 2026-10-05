@@ -87,3 +87,14 @@ def test_v2_order_request_body(monkeypatch):
         "ticker": "T", "side": "bid", "count": "34.00", "price": "0.4400", "time_in_force": "immediate_or_cancel",
         "self_trade_prevention_type": "taker_at_cross"}
     assert body["exchange_index"] == 3
+
+
+def test_shard_transfer_body_is_event_contract_in_centicents(monkeypatch):
+    from kalshibot.kalshi_client import KalshiClient
+    client = KalshiClient(None, base_url="https://example.com/trade-api/v2")
+    sent = {}
+    monkeypatch.setattr(client, "_request", lambda method, path, **kw: sent.update(path=path, **kw) or {})
+    client.transfer_between_exchanges(1.5, 0, 3)
+    assert sent["path"] == "/portfolio/intra_exchange_instance_transfer"
+    assert sent["json_body"] == {"source": "event_contract", "destination": "event_contract",
+                                 "source_exchange_shard": 0, "destination_exchange_shard": 3, "amount": 15000}

@@ -161,12 +161,20 @@ class KalshiClient:
             body["exchange_index"] = exchange_index
         return self._request("POST", "/portfolio/events/orders", json_body=body, auth=True)
 
-    def transfer_between_exchanges(self, amount: int, source: int, destination: int) -> dict[str, Any]:
+    def transfer_between_exchanges(self, dollars: float, source: int, destination: int) -> dict[str, Any]:
         """Move cash between exchange shards of this account. Kalshi runs
         some markets (e.g. MLB games) on shard 3 while deposits land on
-        shard 0, and an order only draws on its market's shard."""
-        # Kalshi requires an integer amount (a float is rejected as not int64).
-        body = {"amount": amount, "source_exchange_shard": source, "destination_exchange_shard": destination}
+        shard 0, and an order only draws on its market's shard.
+
+        Both ends are the regular "event_contract" balance (not margin), and
+        Kalshi's amount is an integer in centi-cents: $1 = 10000."""
+        body = {
+            "source": "event_contract",
+            "destination": "event_contract",
+            "source_exchange_shard": source,
+            "destination_exchange_shard": destination,
+            "amount": round(dollars * 10000),
+        }
         return self._request("POST", "/portfolio/intra_exchange_instance_transfer", json_body=body, auth=True)
 
     def get_portfolio(self, kind: str, **params: Any) -> dict[str, Any]:
