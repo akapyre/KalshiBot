@@ -158,5 +158,9 @@ class KalshiClient:
         }
         return self._request("POST", "/portfolio/events/orders", json_body=body, auth=True)
 
+    def get_portfolio(self, kind: str, **params: Any) -> dict[str, Any]:
+        """kind: "orders", "fills", "positions" or "settlements"."""
+        return self._request("GET", f"/portfolio/{kind}", params=params, auth=True)
+
     def cancel_order(self, order_id: str) -> dict[str, Any]:
         return self._request("DELETE", f"/portfolio/orders/{order_id}", auth=True)

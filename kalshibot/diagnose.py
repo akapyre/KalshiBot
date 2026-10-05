@@ -4,6 +4,7 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose kalshi
        python -m kalshibot.diagnose markets nhl   (or any sport above)
        python -m kalshibot.diagnose order         (test order that won't fill)
+       python -m kalshibot.diagnose account       (orders/fills/positions on this key)
 
 Runs the exact same query and parsing as the live bot, then prints each
 event with the reason it is or isn't counted as a live game. "kalshi"
@@ -136,10 +137,43 @@ def check_order() -> None:
     print(json.dumps(response, indent=2))
 
 
+ACCOUNT_SECTIONS = [
+    # (endpoint, key holding the list in Kalshi's reply)
+    ("fills", "fills"),
+    ("orders", "orders"),
+    ("positions", "market_positions"),
+    ("settlements", "settlements"),
+]
+
+
+def check_account() -> None:
+    """What the account behind THIS API key holds, straight from Kalshi --
+    to compare against what the Kalshi app shows when you're logged in."""
+    kalshi = build_kalshi_client(demo=False)
+    print("API key:", kalshi._creds.api_key_id if kalshi._creds else "NONE")
+    print("Balance:", kalshi.get_balance())
+    for kind, list_key in ACCOUNT_SECTIONS:
+        try:
+            reply = kalshi.get_portfolio(kind, limit=10)
+        except requests.HTTPError as e:
+            print(f"\n{kind}: HTTP {e.response.status_code} {e.response.text[:200]}")
+            continue
+        items = reply.get(list_key)
+        if items is None:  # unexpected shape: show what came back
+            print(f"\n{kind}: keys {sorted(reply)}")
+            items = next((v for v in reply.values() if isinstance(v, list)), [])
+        print(f"\n{kind} (latest {len(items)}):")
+        for item in items:
+            print("  " + json.dumps(item))
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
         check_kalshi()
+        return
+    if sport == "account":
+        check_account()
         return
     if sport == "order":
         check_order()
