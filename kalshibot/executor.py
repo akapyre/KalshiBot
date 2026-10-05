@@ -49,13 +49,15 @@ def american_odds(price_cents: int) -> int:
 
 
 def _filled_count(response: dict[str, Any]) -> float | None:
-    order = response.get("order", {})
-    for key in ("fill_count", "fill_count_fp"):
-        if order.get(key) not in (None, ""):
-            try:
-                return float(order[key])
-            except (TypeError, ValueError):
-                return None
+    """Contracts filled, wherever this response version puts it (top level
+    or under "order", as "fill_count" or "fill_count_fp"). None if absent."""
+    for source in (response, response.get("order") or {}):
+        for key in ("fill_count_fp", "fill_count"):
+            if source.get(key) not in (None, ""):
+                try:
+                    return float(source[key])
+                except (TypeError, ValueError):
+                    return None
     return None
 
 
@@ -106,7 +108,7 @@ class Executor:
             return
 
         live = self._dry_run is False and self._trading_enabled()
-        prefix = "LIVE ORDER" if live else "DRY-RUN"
+        prefix = "SENDING LIVE ORDER" if live else "DRY-RUN"
         logger.info(
             "%s: rule=%s game=%s team=%s ticker=%s side=%s price=%d¢ (%+d) "
             "count=%d cost=$%.2f",
@@ -119,13 +121,9 @@ class Executor:
             # a thin book can never fill us at a worse price than we logged.
             response = self._kalshi.create_order(
                 ticker=ticker,
-                side=side,
-                action="buy",
                 count=count,
-                order_type="limit",
-                # Kalshi now quotes prices only as dollar strings (no cent
-                # fields in market data), so orders use the same form.
-                yes_price_dollars=f"{yes_price_cents / 100:.4f}",
+                price_dollars=f"{yes_price_cents / 100:.4f}",
+                side="bid",   # buy YES -- the bot never buys NO
                 time_in_force="immediate_or_cancel",
             )
             filled = _filled_count(response)

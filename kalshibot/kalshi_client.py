@@ -135,33 +135,25 @@ class KalshiClient:
         self,
         *,
         ticker: str,
-        side: str,          # "yes" or "no"
-        action: str = "buy",
         count: int,
-        order_type: str = "market",
-        yes_price: int | None = None,
-        no_price: int | None = None,
-        yes_price_dollars: str | None = None,   # e.g. "0.6600"
-        time_in_force: str | None = None,   # e.g. "immediate_or_cancel"
+        price_dollars: str,                 # e.g. "0.4400" -- the YES price
+        side: str = "bid",                  # "bid" buys YES, "ask" sells YES
+        time_in_force: str = "immediate_or_cancel",
         client_order_id: str | None = None,
     ) -> dict[str, Any]:
+        """Create Order (V2). Kalshi retired POST /portfolio/orders in Oct
+        2026 (HTTP 410 "deprecated_v1_order_endpoint"). V2 trades one YES
+        book: buying YES is a "bid" at the YES price, with count and price
+        sent as fixed-point strings."""
         body: dict[str, Any] = {
             "ticker": ticker,
-            "side": side,
-            "action": action,
-            "count": count,
-            "type": order_type,
             "client_order_id": client_order_id or str(uuid.uuid4()),
+            "side": side,
+            "count": f"{count:.2f}",
+            "price": price_dollars,
+            "time_in_force": time_in_force,
         }
-        if yes_price is not None:
-            body["yes_price"] = yes_price
-        if no_price is not None:
-            body["no_price"] = no_price
-        if yes_price_dollars is not None:
-            body["yes_price_dollars"] = yes_price_dollars
-        if time_in_force is not None:
-            body["time_in_force"] = time_in_force
-        return self._request("POST", "/portfolio/orders", json_body=body, auth=True)
+        return self._request("POST", "/portfolio/events/orders", json_body=body, auth=True)
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:
         return self._request("DELETE", f"/portfolio/orders/{order_id}", auth=True)

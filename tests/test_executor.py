@@ -57,13 +57,14 @@ def test_live_order_is_ioc_limit_at_ask_within_stake(tmp_path, monkeypatch):
     executor, kalshi, state = make(tmp_path, monkeypatch)
     run(executor, price=70)
     [order] = kalshi.orders
-    assert order["order_type"] == "limit" and order["time_in_force"] == "immediate_or_cancel"
-    assert order["yes_price_dollars"] == "0.7000" and order["count"] == 21   # 21 x 70¢ = $14.70 <= $15
+    assert order["side"] == "bid" and order["time_in_force"] == "immediate_or_cancel"
+    assert order["price_dollars"] == "0.7000" and order["count"] == 21   # 21 x 70¢ = $14.70 <= $15
     assert state.has_fired("g", "r")
 
 
-def test_unfilled_order_is_not_recorded(tmp_path, monkeypatch):
-    executor, kalshi, state = make(tmp_path, monkeypatch, response={"order": {"fill_count": 0}})
+@pytest.mark.parametrize("response", [{"order": {"fill_count": 0}}, {"order_id": "o", "fill_count_fp": "0.00"}])
+def test_unfilled_order_is_not_recorded(tmp_path, monkeypatch, response):
+    executor, kalshi, state = make(tmp_path, monkeypatch, response=response)
     run(executor)
     assert kalshi.orders and not state.has_fired("g", "r")
 
@@ -72,3 +73,15 @@ def test_dry_run_records_without_ordering(tmp_path, monkeypatch):
     executor, kalshi, state = make(tmp_path, monkeypatch, dry_run=True)
     run(executor)
     assert not kalshi.orders and state.has_fired("g", "r")
+
+
+def test_v2_order_request_body(monkeypatch):
+    from kalshibot.kalshi_client import KalshiClient
+    client = KalshiClient(None, base_url="https://example.com/trade-api/v2")
+    sent = {}
+    monkeypatch.setattr(client, "_request", lambda method, path, **kw: sent.update(method=method, path=path, **kw) or {})
+    client.create_order(ticker="T", count=34, price_dollars="0.4400")
+    assert (sent["method"], sent["path"]) == ("POST", "/portfolio/events/orders")
+    body = sent["json_body"]
+    assert {k: body[k] for k in ("ticker", "side", "count", "price", "time_in_force")} == {
+        "ticker": "T", "side": "bid", "count": "34.00", "price": "0.4400", "time_in_force": "immediate_or_cancel"}

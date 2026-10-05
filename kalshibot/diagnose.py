@@ -128,10 +128,7 @@ def check_order() -> None:
         return
     print(f"Test order: buy 1 YES on {market['ticker']} at 1¢ (ask is {yes_ask_cents(market)}¢), immediate-or-cancel")
     try:
-        response = kalshi.create_order(
-            ticker=market["ticker"], side="yes", action="buy", count=1, order_type="limit",
-            yes_price_dollars="0.0100", time_in_force="immediate_or_cancel",
-        )
+        response = kalshi.create_order(ticker=market["ticker"], count=1, price_dollars="0.0100")
     except requests.HTTPError as e:
         print(f"REJECTED: HTTP {e.response.status_code} {e.response.text[:500]}")
         return
