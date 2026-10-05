@@ -5,6 +5,7 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose markets nhl   (or any sport above)
        python -m kalshibot.diagnose order         (test order that won't fill)
        python -m kalshibot.diagnose account       (orders/fills/positions on this key)
+       python -m kalshibot.diagnose transfer 3 1  (move cash from exchange 0 to 3)
 
 Runs the exact same query and parsing as the live bot, then prints each
 event with the reason it is or isn't counted as a live game. "kalshi"
@@ -167,6 +168,25 @@ def check_account() -> None:
             print("  " + json.dumps(item))
 
 
+def check_transfer(destination: int, amount: str) -> None:
+    """Move a small amount from exchange 0 to another exchange and show the
+    balance on each before and after -- also reveals whether Kalshi reads
+    `amount` as dollars or cents."""
+    kalshi = build_kalshi_client(demo=False)
+
+    def show(label: str) -> None:
+        parts = kalshi.get_balance().get("balance_breakdown", [])
+        print(label, ", ".join(f"exchange {p.get('exchange_index')}: ${p.get('balance')}" for p in parts))
+
+    show("Before:")
+    try:
+        print("Kalshi's reply:", kalshi.transfer_between_exchanges(float(amount), 0, destination))
+    except requests.HTTPError as e:
+        print(f"REJECTED: HTTP {e.response.status_code} {e.response.text[:500]}")
+        return
+    show("After: ")
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
@@ -174,6 +194,12 @@ def main() -> None:
         return
     if sport == "account":
         check_account()
+        return
+    if sport == "transfer":
+        if len(sys.argv) != 4:
+            print("Usage: python -m kalshibot.diagnose transfer <to exchange> <amount>")
+            return
+        check_transfer(int(sys.argv[2]), sys.argv[3])
         return
     if sport == "order":
         check_order()

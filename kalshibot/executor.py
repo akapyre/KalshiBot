@@ -87,6 +87,7 @@ class Executor:
         yes_price_cents: int,
         open_position_count: int,
         realized_pnl_today_usd: float,
+        exchange_index: int | None = None,
     ) -> None:
         allowed, reason = self._risk.allow(
             open_position_count=open_position_count,
@@ -124,6 +125,7 @@ class Executor:
                 count=count,
                 price_dollars=f"{yes_price_cents / 100:.4f}",
                 side="bid",   # buy YES -- the bot never buys NO
+                exchange_index=exchange_index,
                 time_in_force="immediate_or_cancel",
             )
             filled = _filled_count(response)

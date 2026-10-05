@@ -135,6 +135,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                             ticker=resolved.ticker,
                             side=resolved.side,
                             yes_price_cents=ask,
+                            exchange_index=market.get("exchange_index"),
                             open_position_count=get_open_position_count(kalshi),
                             realized_pnl_today_usd=0.0,  # TODO: wire up settlement P&L once daily_loss_cap is enabled
                         )

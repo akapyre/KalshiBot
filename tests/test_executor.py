@@ -80,9 +80,10 @@ def test_v2_order_request_body(monkeypatch):
     client = KalshiClient(None, base_url="https://example.com/trade-api/v2")
     sent = {}
     monkeypatch.setattr(client, "_request", lambda method, path, **kw: sent.update(method=method, path=path, **kw) or {})
-    client.create_order(ticker="T", count=34, price_dollars="0.4400")
+    client.create_order(ticker="T", count=34, price_dollars="0.4400", exchange_index=3)
     assert (sent["method"], sent["path"]) == ("POST", "/portfolio/events/orders")
     body = sent["json_body"]
     assert {k: body[k] for k in ("ticker", "side", "count", "price", "time_in_force", "self_trade_prevention_type")} == {
         "ticker": "T", "side": "bid", "count": "34.00", "price": "0.4400", "time_in_force": "immediate_or_cancel",
         "self_trade_prevention_type": "taker_at_cross"}
+    assert body["exchange_index"] == 3

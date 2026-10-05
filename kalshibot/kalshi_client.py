@@ -139,6 +139,7 @@ class KalshiClient:
         price_dollars: str,                 # e.g. "0.4400" -- the YES price
         side: str = "bid",                  # "bid" buys YES, "ask" sells YES
         time_in_force: str = "immediate_or_cancel",
+        exchange_index: int | None = None,  # the market's shard; Kalshi defaults to 0
         client_order_id: str | None = None,
     ) -> dict[str, Any]:
         """Create Order (V2). Kalshi retired POST /portfolio/orders in Oct
@@ -156,7 +157,16 @@ class KalshiClient:
             # matters if we ever trade against our own resting order.
             "self_trade_prevention_type": "taker_at_cross",
         }
+        if exchange_index is not None:
+            body["exchange_index"] = exchange_index
         return self._request("POST", "/portfolio/events/orders", json_body=body, auth=True)
+
+    def transfer_between_exchanges(self, amount: float, source: int, destination: int) -> dict[str, Any]:
+        """Move cash between exchange shards of this account. Kalshi runs
+        some markets (e.g. MLB games) on shard 3 while deposits land on
+        shard 0, and an order only draws on its market's shard."""
+        body = {"amount": amount, "source_exchange_shard": source, "destination_exchange_shard": destination}
+        return self._request("POST", "/portfolio/intra_exchange_instance_transfer", json_body=body, auth=True)
 
     def get_portfolio(self, kind: str, **params: Any) -> dict[str, Any]:
         """kind: "orders", "fills", "positions" or "settlements"."""
