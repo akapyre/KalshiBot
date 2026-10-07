@@ -5,6 +5,7 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose markets nhl   (or any sport above)
        python -m kalshibot.diagnose order         (test order that won't fill)
        python -m kalshibot.diagnose account       (orders/fills/positions on this key)
+       python -m kalshibot.diagnose leagues       (every SportsGameOdds league on your plan)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
 
 Runs the exact same query and parsing as the live bot, then prints each
@@ -27,7 +28,7 @@ from .executor import yes_ask_cents
 from .kalshi_client import KalshiClient
 from .main import build_kalshi_client
 from .matching import SERIES_BY_SPORT, MarketMatcher, event_date, game_date
-from .odds_providers.sportsgameodds import LEAGUE_IDS, SportsGameOddsProvider
+from .odds_providers.sportsgameodds import API_BASE as SGO_API_BASE, LEAGUE_IDS, SportsGameOddsProvider
 
 KALSHI_CANDIDATE_URLS = [
     "https://api.elections.kalshi.com/trade-api/v2",
@@ -67,6 +68,7 @@ SERIES_KEYWORDS = {
     "mlb": ["mlb", "baseball"],
     "cfb": ["ncaaf", "collegefootball"],
     "soccer": ["soccer", "premier", "laliga", "bundesliga", "seriea", "ligue"],
+    "tennis": ["tennis", "atp", "wta"],
 }
 
 MARKET_FIELDS = ("ticker", "event_ticker", "title", "subtitle", "yes_sub_title", "no_sub_title", "close_time")
@@ -186,10 +188,29 @@ def check_transfer(destination: int, amount: str) -> None:
     show("After: ")
 
 
+def check_leagues() -> None:
+    """Every league the SportsGameOdds key can see -- to find out whether
+    the plan includes tennis, and under which leagueIDs."""
+    provider = SportsGameOddsProvider()
+    resp = requests.get(f"{SGO_API_BASE}/leagues", headers=provider._headers(), timeout=30)
+    resp.raise_for_status()
+    leagues = resp.json().get("data", [])
+    print(f"{len(leagues)} leagues on this SportsGameOdds key:")
+    for league in sorted(leagues, key=lambda l: (str(l.get("sportID")), str(l.get("leagueID")))):
+        sport = str(league.get("sportID"))
+        flag = "   <-- TENNIS" if "TENNIS" in sport.upper() else ""
+        print(f"  {sport:12} {str(league.get('leagueID')):20} {league.get('name') or league.get('long') or ''}{flag}")
+    if not any("TENNIS" in str(l.get("sportID", "")).upper() for l in leagues):
+        print("\nNo tennis leagues on this key.")
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
         check_kalshi()
+        return
+    if sport == "leagues":
+        check_leagues()
         return
     if sport == "account":
         check_account()
