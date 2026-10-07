@@ -6,6 +6,8 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose order         (test order that won't fill)
        python -m kalshibot.diagnose account       (orders/fills/positions on this key)
        python -m kalshibot.diagnose leagues       (every SportsGameOdds league on your plan)
+       python -m kalshibot.diagnose notify        (test phone notifications)
+       python -m kalshibot.diagnose record        (the bot's wins and losses; add "import" for past bets)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
 
 Runs the exact same query and parsing as the live bot, then prints each
@@ -17,6 +19,7 @@ buy for each of today's games.
 from __future__ import annotations
 
 import json
+import secrets
 import sys
 
 import requests
@@ -24,8 +27,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from .executor import yes_ask_cents
+from . import notify
+from .executor import order_cost, yes_ask_cents
 from .kalshi_client import KalshiClient
+from .ledger import BetLedger, record_line
 from .main import build_kalshi_client
 from .matching import SERIES_BY_SPORT, MarketMatcher, event_date, game_date
 from .odds_providers.sportsgameodds import API_BASE as SGO_API_BASE, LEAGUE_IDS, SportsGameOddsProvider
@@ -207,10 +212,71 @@ def check_leagues() -> None:
         print("\nNo tennis leagues on this key.")
 
 
+SPORT_BY_SERIES = {series: sport for sport, many in SERIES_BY_SPORT.items() for series in many}
+
+
+def check_notify() -> None:
+    """Send a test notification, or suggest a topic if none is set."""
+    if notify.topic() is None:
+        print("No NTFY_TOPIC in .env yet. Add this line to .env (a random name only you know):")
+        print(f"  NTFY_TOPIC=kalshibot-{secrets.token_hex(8)}")
+        print("then subscribe to that same topic in the ntfy app and run this again.")
+        return
+    ok = notify.send("KalshiBot test", "Notifications are working.", tags=["tada"])
+    print("Sent -- check your phone." if ok else "Sending failed -- see the warning above.")
+
+
+def import_bot_orders(kalshi: KalshiClient, ledger: BetLedger) -> None:
+    """Add the bot's past filled orders to the ledger. Bot orders are limit
+    orders with a client_order_id; Kalshi app orders are market orders
+    with a blank one. 1-cent orders are the `diagnose order` test."""
+    orders = kalshi.get_portfolio("orders", limit=200).get("orders", [])
+    added = 0
+    for o in orders:
+        filled = float(o.get("fill_count_fp") or o.get("fill_count") or 0)
+        if (o.get("type") != "limit" or not o.get("client_order_id") or filled <= 0
+                or float(o.get("yes_price_dollars") or 0) <= 0.01 or ledger.has(o["order_id"])):
+            continue
+        ticker = o["ticker"]
+        title = kalshi.get_market(ticker).get("market", {}).get("title", ticker)
+        cost, fee = order_cost(o)
+        ledger.record(order_id=o["order_id"], ticker=ticker, team=title.removesuffix(" wins"),
+                      sport=SPORT_BY_SERIES.get(ticker.split("-")[0], "?"), rule="(imported)",
+                      contracts=filled, cost=cost or 0.0, fee=fee, placed_at=o.get("created_time"))
+        added += 1
+    results = {s.get("ticker"): s.get("market_result")
+               for s in kalshi.get_portfolio("settlements", limit=200).get("settlements", [])}
+    for bet in ledger.open_bets():
+        if bet["ticker"] in results:
+            ledger.settle(bet["order_id"], str(results[bet["ticker"]]))
+    print(f"Imported {added} past bot bet(s).\n")
+
+
+def check_record(do_import: bool) -> None:
+    ledger = BetLedger()
+    if do_import:
+        import_bot_orders(build_kalshi_client(demo=False), ledger)
+    bets = ledger.all_bets()
+    if not bets:
+        print("No bot bets recorded yet. (python -m kalshibot.diagnose record import adds past ones.)")
+        return
+    for b in bets:
+        pnl = "" if b["pnl"] is None else f"{b['pnl']:+.2f}"
+        print(f"  {b['placed_at'][:16]}  {b['status'].upper():5} {pnl:>8}  {b['team']} "
+              f"({b['sport']}, {b['contracts']:g} @ ${b['cost']:.2f})")
+    print("\n" + record_line(ledger.summary()))
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
         check_kalshi()
+        return
+    if sport == "notify":
+        check_notify()
+        return
+    if sport == "record":
+        check_record(do_import=len(sys.argv) > 2 and sys.argv[2] == "import")
         return
     if sport == "leagues":
         check_leagues()

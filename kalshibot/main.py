@@ -3,6 +3,7 @@ market -> execute (dry-run or live, per --dry-run / TRADING_ENABLED)."""
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import time
@@ -11,7 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from . import notify
 from .executor import Executor, american_odds, yes_ask_cents
+from .ledger import BetLedger, record_line
 from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, KalshiCredentials
 from .matching import MarketMatcher
 from .odds_providers.base import Sport
@@ -57,6 +60,42 @@ def get_open_position_count(kalshi: KalshiClient) -> int:
         return 0
 
 
+def settle_finished_bets(kalshi: KalshiClient, ledger: BetLedger) -> None:
+    """Mark the bot's open bets won/lost once Kalshi settles their market,
+    and send the result with the running record to the phone."""
+    open_bets = ledger.open_bets()
+    if not open_bets:
+        return
+    try:
+        settlements = kalshi.get_portfolio("settlements", limit=200).get("settlements", [])
+    except Exception as e:
+        logger.warning("Couldn't check settlements this cycle: %s", e)
+        return
+    results = {s.get("ticker"): s.get("market_result") for s in settlements}
+    for bet in open_bets:
+        if bet["ticker"] not in results:
+            continue
+        settled = ledger.settle(bet["order_id"], str(results[bet["ticker"]]))
+        if settled is None:
+            continue
+        line = record_line(ledger.summary())
+        logger.info("BET %s: %s %s (%+.2f USD) -- %s", settled["status"].upper(),
+                    settled["team"], settled["ticker"], settled["pnl"], line)
+        if settled["status"] == "won":
+            notify.send(f"WON: {settled['team']} +${settled['pnl']:.2f}", line, tags=["white_check_mark"])
+        elif settled["status"] == "lost":
+            notify.send(f"LOST: {settled['team']} -${-settled['pnl']:.2f}", line, tags=["x"])
+        else:
+            notify.send(f"Void/refunded: {settled['team']}", line, tags=["leftwards_arrow_with_hook"])
+
+
+def _kalshi_error_code(body: str) -> str:
+    try:
+        return json.loads(body).get("error", {}).get("code") or "error"
+    except (ValueError, AttributeError):
+        return "error"
+
+
 def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     kalshi = build_kalshi_client(demo)
     odds_provider = SportsGameOddsProvider()
@@ -65,7 +104,11 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     state_store = BetStateStore()
     risk = RiskManager(RiskConfig.load())
     engine = RulesEngine(rules, stake_usd, state_store)
-    executor = Executor(kalshi, risk, state_store, dry_run=dry_run)
+    ledger = BetLedger()
+    executor = Executor(kalshi, risk, state_store, dry_run=dry_run, ledger=ledger)
+    # (game, rule, error code) already sent to the phone, so a failure that
+    # repeats every cycle (e.g. insufficient balance) notifies only once.
+    notified_failures: set[tuple[str, str, str]] = set()
 
     logger.info(
         "KalshiBot starting: dry_run=%s demo_env=%s stake=$%.2f loss_cap=%s max_positions=%s",
@@ -83,6 +126,9 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
             logger.info("Kalshi balance: %s", kalshi.get_balance())
         except Exception as e:
             logger.warning("Could not read Kalshi balance: %s", e)
+        mode = "LIVE" if executor._trading_enabled() else "logging only"
+        if notify.send(f"KalshiBot started ({mode})", record_line(ledger.summary()), tags=["robot"]):
+            logger.info("Phone notifications on (ntfy topic set)")
 
     while True:
         live_counts: dict[str, int] = {}
@@ -142,12 +188,22 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                         # Not recorded as fired, so it retries next cycle.
                         # Kalshi explains rejections (e.g. insufficient
                         # balance) in the response body, so show it.
-                        body = getattr(getattr(e, "response", None), "text", "")
+                        body = getattr(getattr(e, "response", None), "text", "") or ""
                         logger.exception(
                             "Kalshi step failed for %s (%s) -- will retry next cycle %s",
                             decision.rule_id, decision.team, body[:300],
                         )
+                        key = (decision.game_id, decision.rule_id, _kalshi_error_code(body))
+                        if not dry_run and key not in notified_failures:
+                            notified_failures.add(key)
+                            notify.send(
+                                f"Bet failed: {decision.team}",
+                                f"{decision.rule_id}: {key[2]} -- the bot will keep retrying"
+                                + (" (add funds to that market's exchange)" if key[2] == "insufficient_balance" else ""),
+                                tags=["warning"], priority=4,
+                            )
 
+        settle_finished_bets(kalshi, ledger)
         logger.info("Poll cycle done: %s", live_counts or "no sports queried successfully")
         time.sleep(poll_interval_s)
 

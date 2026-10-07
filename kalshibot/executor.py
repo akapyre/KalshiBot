@@ -14,7 +14,9 @@ import logging
 import os
 from typing import Any
 
+from . import notify
 from .kalshi_client import KalshiClient
+from .ledger import BetLedger, record_line
 from .risk import RiskManager
 from .rules_engine import BetDecision
 from .state import BetStateStore
@@ -48,6 +50,21 @@ def american_odds(price_cents: int) -> int:
     return round(-100 * p / (1 - p)) if p >= 0.5 else round(100 * (1 - p) / p)
 
 
+def order_cost(order: dict[str, Any]) -> tuple[float | None, float | None]:
+    """(cost, fees) in dollars from a Kalshi order record, if present."""
+    order = order.get("order", order)
+
+    def total(*keys: str) -> float | None:
+        vals = [order.get(k) for k in keys if order.get(k) not in (None, "")]
+        try:
+            return sum(float(v) for v in vals) if vals else None
+        except (TypeError, ValueError):
+            return None
+
+    return (total("taker_fill_cost_dollars", "maker_fill_cost_dollars"),
+            total("taker_fees_dollars", "maker_fees_dollars"))
+
+
 def _filled_count(response: dict[str, Any]) -> float | None:
     """Contracts filled, wherever this response version puts it (top level
     or under "order", as "fill_count" or "fill_count_fp"). None if absent."""
@@ -68,11 +85,13 @@ class Executor:
         risk_manager: RiskManager,
         state_store: BetStateStore,
         dry_run: bool,
+        ledger: BetLedger | None = None,
     ):
         self._kalshi = kalshi_client
         self._risk = risk_manager
         self._state = state_store
         self._dry_run = dry_run
+        self._ledger = ledger
 
     def _trading_enabled(self) -> bool:
         env_var = self._risk.config.trading_enabled_env_var
@@ -135,8 +154,38 @@ class Executor:
                 logger.warning("LIVE ORDER on %s did not fill -- will retry next cycle", ticker)
                 return
             logger.info("LIVE ORDER filled: %s contracts on %s", "?" if filled is None else filled, ticker)
+            self._log_bet(decision, ticker, response, filled if filled is not None else count, price)
 
         # Record the rule as fired regardless of live/dry-run so the bet-state
         # machine (single-bet-per-game, NFL re-entry) behaves identically in
         # both modes -- dry-run should mirror live decisioning exactly.
         self._state.record(decision.game_id, decision.rule_id)
+
+    def _log_bet(self, decision: BetDecision, ticker: str, response: dict[str, Any],
+                 contracts: float, price_cents: int) -> None:
+        """Add a filled bet to the win/loss ledger and tell the phone. Never
+        lets a bookkeeping problem undo or repeat the bet itself."""
+        try:
+            order_id = response.get("order_id") or response.get("order", {}).get("order_id") or ""
+            cost, fee = None, None
+            if order_id:
+                try:
+                    cost, fee = order_cost(self._kalshi.get_order(order_id))
+                except Exception as e:
+                    logger.warning("Couldn't read the order's exact cost (%s); estimating it", e)
+            if cost is None:
+                cost = contracts * price_cents / 100
+            summary = None
+            if self._ledger is not None and order_id:
+                self._ledger.record(order_id=order_id, ticker=ticker, team=decision.team,
+                                    sport=decision.sport, rule=decision.rule_id,
+                                    contracts=contracts, cost=cost, fee=fee)
+                summary = self._ledger.summary()
+            notify.send(
+                f"Bet placed: {decision.team}",
+                f"{contracts:g} contracts at {price_cents}¢ ({american_odds(price_cents):+d}) = ${cost:.2f}"
+                f" · {decision.sport.upper()}" + (f"\n{record_line(summary)}" if summary else ""),
+                tags=["moneybag"],
+            )
+        except Exception:
+            logger.exception("Bet on %s filled but couldn't be added to the ledger", ticker)
