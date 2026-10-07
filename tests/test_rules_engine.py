@@ -81,16 +81,20 @@ def test_soccer_moderate_favorite_skips_if_trailing_after_half(engine):
     assert eng.evaluate(snap) == []
 
 
-def test_tennis_heavy_favorite_triggers_below_100(engine):
+@pytest.mark.parametrize("live, fires", [
+    (-300, False), (-200, False), (-111, False),   # still clearly favored
+    (-110, True), (-105, True), (100, True),       # faded to near even
+    (101, False), (150, False),                    # became a real underdog
+])
+def test_tennis_heavy_favorite_bets_near_even(engine, live, fires):
     eng, _ = engine
-    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-300, live_favorite_odds=50)
-    decisions = eng.evaluate(snap)
-    assert [d.rule_id for d in decisions] == ["tennis_heavy_favorite"]
+    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-300, live_favorite_odds=live)
+    assert [d.rule_id for d in eng.evaluate(snap)] == (["tennis_heavy_favorite"] if fires else [])
 
 
-def test_tennis_heavy_favorite_skips_at_100(engine):
+def test_tennis_needs_a_minus_300_favorite(engine):
     eng, _ = engine
-    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-300, live_favorite_odds=100)
+    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-250, live_favorite_odds=-105)
     assert eng.evaluate(snap) == []
 
 
@@ -314,6 +318,9 @@ def test_nhl_last_six_minutes_blocked(engine, period, seconds, fires):
         ("nfl_favorite_fade", 60, False),       # -150
         ("nfl_favorite_fade", 10, True),        # no ceiling on this rule
         ("nhl_favorite_trails_by_one", 90, True),  # score-based rule, no odds band
+        ("tennis_heavy_favorite", 52, True),    # -108, near even
+        ("tennis_heavy_favorite", 45, False),   # +122, past +100
+        ("tennis_heavy_favorite", 60, False),   # -150, still clearly favored
     ],
 )
 def test_kalshi_price_must_respect_the_rule_band(tmp_path, rule_id, ask, ok):

@@ -25,9 +25,10 @@
 #      faded from -250 up toward -115 or further, including into positive
 #      territory) -- "below" read as "the favorite is less heavily favored",
 #      not as a smaller signed number.
-#   6. Tennis "moves below +100" = live odds < 100 (no floor specified, so
-#      any drift under +100 qualifies, including if it's still a favorite
-#      that simply isn't -300 anymore).
+#   6. Tennis "moves below +100" = the -300 favorite has faded to roughly a
+#      coin flip: live odds between -110 and +100 inclusive (your call,
+#      2026-10-07). Not a bet while it's still clearly favored (e.g. -200),
+#      and not once it's become a real underdog (e.g. +120).
 #   7. MLB "falls below +100 but not past +200" -- this is the most confusing
 #      wording in the whole set, since "below +100" and "not past +200" would
 #      be redundant if read literally (anything under +100 is automatically
@@ -112,13 +113,14 @@ rules:
   - id: tennis_heavy_favorite
     sport: tennis
     description: >
-      Pregame favorite at -300 or steeper. Wager when live price for the
-      favorite moves below +100.
+      Pregame favorite at -300 or steeper. Wager when the favorite's live
+      price has faded to near even: -110 through +100.
     pregame:
       side: favorite
       max_odds: -300
     trigger:
-      max_odds: 99              # "below +100"
+      min_odds: -110            # no shorter than -110...
+      max_odds: 100             # ...and no longer than +100
     invalidate_if: {}
     max_bets_per_game: 1
 
