@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -39,8 +40,8 @@ SERIES_BY_SPORT: dict[Sport, list[str]] = {
     "mlb": ["KXMLBGAME"],      # confirmed 2026-09-29 (tickers add a start time: 26SEP292000)
     "nfl": ["KXNFLGAME"],      # confirmed 2026-10-04 (Detroit order filled)
     "cfb": ["KXNCAAFGAME"],    # seen in the account's settlements 2026-10-04
-    # Picked from Kalshi's series list ("ATP Tennis Match", "WTA Tennis
-    # Match") 2026-10-07; market layout not yet checked.
+    # Confirmed 2026-10-07: one "<Full Name> wins" market per player, dated
+    # event tickers, exchange_index 3.
     "tennis": ["KXATPMATCH", "KXWTAMATCH"],
     # Unverified guess -- confirm with `diagnose markets soccer`.
     "soccer": ["KXSOCCERGAME"],
@@ -57,23 +58,34 @@ _MONTHS = {m: i for i, m in enumerate(
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"[^a-z]", "", text.lower())
+    # Strip accents first so SportsGameOdds' "Marin Čilić" matches Kalshi's
+    # "Marin Cilic" instead of collapsing to "marinili".
+    plain = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z]", "", plain.lower())
 
 
-def _label_names(label: str, team: str) -> bool:
+# Sports where Kalshi labels are full person names ("Ben Shelton"). Matching
+# on a surname alone would let "Michael Zheng" stand in for "Qinwen Zheng",
+# so the whole name has to agree.
+FULL_NAME_SPORTS = {"tennis"}
+
+
+def _label_names(label: str, team: str, full_name: bool = False) -> bool:
     """Does a Kalshi short name ("Vegas", "St. Louis", "NY Rangers") refer
     to this full team name ("Vegas Golden Knights")?"""
     lab = _normalize(label)
     if len(lab) < 3:
         return False
+    if full_name:
+        return lab == _normalize(team)
     words = team.split()
     specific = [_normalize(team)] + ([_normalize(words[-1])] if len(words) > 1 else [])
     return lab in _normalize(team) or any(len(t) >= 3 and t in lab for t in specific)
 
 
-def _label_side(label: str, home: str, away: str) -> str | None:
+def _label_side(label: str, home: str, away: str, full_name: bool = False) -> str | None:
     """"home"/"away" if the label names exactly one of the two teams."""
-    h, a = _label_names(label, home), _label_names(label, away)
+    h, a = _label_names(label, home, full_name), _label_names(label, away, full_name)
     if h and not a:
         return "home"
     if a and not h:
@@ -119,7 +131,10 @@ class MarketMatcher:
         by_event: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
         for series_ticker in SERIES_BY_SPORT.get(snapshot.sport, []):
             for m in self._kalshi.iter_markets(series_ticker=series_ticker, status="open"):
-                side = _label_side(str(m.get("yes_sub_title") or ""), snapshot.home_team, snapshot.away_team)
+                side = _label_side(
+                    str(m.get("yes_sub_title") or ""), snapshot.home_team, snapshot.away_team,
+                    full_name=snapshot.sport in FULL_NAME_SPORTS,
+                )
                 if side is not None:
                     by_event[m.get("event_ticker") or ""][side].append(m)
         # Exactly one market per team, or the event isn't a plain

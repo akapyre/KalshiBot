@@ -137,8 +137,8 @@ def test_tennis_searches_both_tours_with_a_day_of_date_slack():
     # A Shanghai match at 03:00 UTC Oct 8 is Oct 7 by the US-date rule, but
     # Kalshi may date it by the local day.
     markets = (
-        game_markets("KXATPMATCH-26OCT08SINALC", ("SIN", "Sinner"), ("ALC", "Alcaraz"))
-        + game_markets("KXWTAMATCH-26OCT08SABGAU", ("SAB", "Sabalenka"), ("GAU", "Gauff"))
+        game_markets("KXATPMATCH-26OCT08SINALC", ("SIN", "Jannik Sinner"), ("ALC", "Carlos Alcaraz"))
+        + game_markets("KXWTAMATCH-26OCT08SABGAU", ("SAB", "Aryna Sabalenka"), ("GAU", "Coco Gauff"))
     )
     men = snap("Jannik Sinner", "Carlos Alcaraz", "Jannik Sinner", start="2026-10-08T03:00:00Z", sport="tennis")
     women = snap("Aryna Sabalenka", "Coco Gauff", "Coco Gauff", start="2026-10-08T03:00:00Z", sport="tennis")
@@ -155,6 +155,19 @@ def test_no_date_slack_outside_tennis():
 def test_event_with_several_markets_naming_one_team_is_skipped():
     # e.g. score markets "Sinner 2-0", "Sinner 2-1" -- not a plain winner market.
     markets = game_markets(
-        "KXATPMATCH-26OCT07SINALC", ("SIN20", "Sinner 2-0"), ("SIN21", "Sinner 2-1"), ("ALC", "Alcaraz"))
+        "KXATPMATCH-26OCT07SINALC", ("SIN20", "Jannik Sinner"), ("SIN21", "Jannik Sinner"), ("ALC", "Carlos Alcaraz"))
     game = snap("Jannik Sinner", "Carlos Alcaraz", "Jannik Sinner", start="2026-10-07T12:00:00Z", sport="tennis")
+    assert resolve(markets, game) is None
+
+
+def test_tennis_accented_names_match_kalshis_plain_spelling():
+    markets = game_markets("KXATPMATCH-26OCT07CILFER", ("CIL", "Marin Cilic"), ("FER", "Arthur Fery"))
+    game = snap("Arthur Fery", "Marin Čilić", "Marin Čilić", start="2026-10-07T12:00:00Z", sport="tennis")
+    assert resolve(markets, game).ticker == "KXATPMATCH-26OCT07CILFER-CIL"
+
+
+def test_tennis_surname_alone_does_not_match_another_player():
+    # Michael Zheng's match must not be used for Qinwen Zheng's.
+    markets = game_markets("KXATPMATCH-26OCT07ZHEWU", ("ZHE", "Michael Zheng"), ("WU", "Yibing Wu"))
+    game = snap("Yibing Wu", "Qinwen Zheng", "Yibing Wu", start="2026-10-07T12:00:00Z", sport="tennis")
     assert resolve(markets, game) is None

@@ -20,10 +20,9 @@ from .risk import RiskConfig, RiskManager
 from .rules_engine import RulesEngine, load_rules
 from .state import BetStateStore
 
-# Tennis not polled yet: the upgraded SportsGameOdds plan covers ATP/WTA,
-# but how its tennis events and Kalshi's KXATPMATCH/KXWTAMATCH markets look
-# hasn't been checked (`diagnose tennis`, `diagnose markets tennis`).
-SPORTS: list[Sport] = ["soccer", "nfl", "mlb", "cfb", "nhl"]
+# Tennis (ATP/WTA) came with the upgraded SportsGameOdds plan; its events
+# and Kalshi's KXATPMATCH/KXWTAMATCH markets were checked 2026-10-07.
+SPORTS: list[Sport] = ["soccer", "nfl", "mlb", "cfb", "nhl", "tennis"]
 
 logging.basicConfig(
     level=logging.INFO,

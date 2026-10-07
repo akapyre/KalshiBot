@@ -24,8 +24,9 @@ game used purely to inspect the schema, not live data):
   live; used to detect the NFL 4th-quarter rule and soccer halftime.
 
 TENNIS: not on the original plan; the upgraded plan lists TENNIS leagues
-ATP and WTA (`diagnose leagues`, 2026-10-07). How tennis events and their
-moneyline look has not been checked yet -- run `diagnose tennis`.
+ATP and WTA (`diagnose leagues`, 2026-10-07). Tennis events parse like
+the team sports: players under teams.home/away, the match moneyline under
+statID "points", score in sets.
 
 IMPORTANT DESIGN NOTE: we deliberately do NOT filter the /v2/events request
 to live-only. If we did, we'd never see a game in its pregame state and
