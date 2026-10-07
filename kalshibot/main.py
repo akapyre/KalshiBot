@@ -20,9 +20,9 @@ from .risk import RiskConfig, RiskManager
 from .rules_engine import RulesEngine, load_rules
 from .state import BetStateStore
 
-# Tennis excluded -- SportsGameOdds doesn't cover it (confirmed on both
-# free and paid tiers). The tennis rule in config/rules.yaml stays defined
-# but never fires as a result. See kalshibot/odds_providers/sportsgameodds.py.
+# Tennis not polled yet: the upgraded SportsGameOdds plan covers ATP/WTA,
+# but how its tennis events and Kalshi's KXATPMATCH/KXWTAMATCH markets look
+# hasn't been checked (`diagnose tennis`, `diagnose markets tennis`).
 SPORTS: list[Sport] = ["soccer", "nfl", "mlb", "cfb", "nhl"]
 
 logging.basicConfig(

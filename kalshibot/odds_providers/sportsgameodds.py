@@ -23,11 +23,9 @@ game used purely to inspect the schema, not live data):
 - `status.currentPeriodID` (e.g. "4q", "2h") -- current quarter/half while
   live; used to detect the NFL 4th-quarter rule and soccer halftime.
 
-TENNIS IS NOT COVERED: confirmed via GET /v2/leagues on both free and paid
-tiers -- SportsGameOdds' sportID list is BASEBALL, BASKETBALL, FOOTBALL,
-HANDBALL, HOCKEY, MMA, SOCCER. No tennis at all. Per your call, the tennis
-rule in config/rules.yaml is left in place but will simply never fire,
-since main.py no longer polls for it.
+TENNIS: not on the original plan; the upgraded plan lists TENNIS leagues
+ATP and WTA (`diagnose leagues`, 2026-10-07). How tennis events and their
+moneyline look has not been checked yet -- run `diagnose tennis`.
 
 IMPORTANT DESIGN NOTE: we deliberately do NOT filter the /v2/events request
 to live-only. If we did, we'd never see a game in its pregame state and
@@ -73,7 +71,7 @@ API_BASE = "https://api.sportsgameodds.com/v2"
 LEAGUE_IDS: dict[Sport, list[str]] = {
     "nfl": ["NFL"],
     "soccer": ["EPL", "LA_LIGA", "BUNDESLIGA", "IT_SERIE_A", "FR_LIGUE_1"],
-    "tennis": [],  # not covered by this provider -- see module docstring
+    "tennis": ["ATP", "WTA"],
     "mlb": ["MLB"],  # confirmed present in GET /v2/leagues
     "cfb": ["NCAAF"],  # confirmed present in GET /v2/leagues (early exploration, not the MLB/NFL session)
     "nhl": ["NHL"],  # confirmed present in GET /v2/leagues

@@ -16,7 +16,8 @@ class FakeKalshi:
         self.markets = markets
 
     def iter_markets(self, **params):
-        return self.markets
+        series = params.get("series_ticker")
+        return [m for m in self.markets if not series or m["event_ticker"].startswith(series + "-")]
 
 
 def game_markets(event, *teams):
@@ -130,3 +131,30 @@ def test_iter_markets_follows_cursor(monkeypatch):
     monkeypatch.setattr(client, "list_markets", fake_list)
     assert client.iter_markets(series_ticker="S") == [1, 2, 3]
     assert seen_cursors == [None, "c1"]
+
+
+def test_tennis_searches_both_tours_with_a_day_of_date_slack():
+    # A Shanghai match at 03:00 UTC Oct 8 is Oct 7 by the US-date rule, but
+    # Kalshi may date it by the local day.
+    markets = (
+        game_markets("KXATPMATCH-26OCT08SINALC", ("SIN", "Sinner"), ("ALC", "Alcaraz"))
+        + game_markets("KXWTAMATCH-26OCT08SABGAU", ("SAB", "Sabalenka"), ("GAU", "Gauff"))
+    )
+    men = snap("Jannik Sinner", "Carlos Alcaraz", "Jannik Sinner", start="2026-10-08T03:00:00Z", sport="tennis")
+    women = snap("Aryna Sabalenka", "Coco Gauff", "Coco Gauff", start="2026-10-08T03:00:00Z", sport="tennis")
+    assert resolve(markets, men).ticker == "KXATPMATCH-26OCT08SINALC-SIN"
+    assert resolve(markets, women).ticker == "KXWTAMATCH-26OCT08SABGAU-GAU"
+
+
+def test_no_date_slack_outside_tennis():
+    markets = game_markets("KXNHLGAME-26OCT08VANEDM", ("VAN", "Vancouver"), ("EDM", "Edmonton"))
+    game = snap("Edmonton Oilers", "Vancouver Canucks", "Edmonton Oilers", start="2026-10-08T02:00:00Z")
+    assert resolve(markets, game) is None   # game date Oct 7, event Oct 8
+
+
+def test_event_with_several_markets_naming_one_team_is_skipped():
+    # e.g. score markets "Sinner 2-0", "Sinner 2-1" -- not a plain winner market.
+    markets = game_markets(
+        "KXATPMATCH-26OCT07SINALC", ("SIN20", "Sinner 2-0"), ("SIN21", "Sinner 2-1"), ("ALC", "Alcaraz"))
+    game = snap("Jannik Sinner", "Carlos Alcaraz", "Jannik Sinner", start="2026-10-07T12:00:00Z", sport="tennis")
+    assert resolve(markets, game) is None

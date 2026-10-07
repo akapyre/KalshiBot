@@ -32,15 +32,24 @@ from .odds_providers.base import GameSnapshot, Sport
 
 logger = logging.getLogger("kalshibot.matching")
 
-SERIES_BY_SPORT: dict[Sport, str] = {
-    "nhl": "KXNHLGAME",      # confirmed 2026-09-29
-    "mlb": "KXMLBGAME",      # confirmed 2026-09-29 (tickers add a start time: 26SEP292000)
-    # Unverified guesses -- confirm with `diagnose markets <sport>`.
-    "nfl": "KXNFLGAME",
-    "soccer": "KXSOCCERGAME",
-    "tennis": "KXTENNISGAME",
-    "cfb": "KXNCAAFGAME",
+# Each sport's Kalshi game-winner series. A sport can span several series
+# (tennis: men's and women's tours are separate).
+SERIES_BY_SPORT: dict[Sport, list[str]] = {
+    "nhl": ["KXNHLGAME"],      # confirmed 2026-09-29
+    "mlb": ["KXMLBGAME"],      # confirmed 2026-09-29 (tickers add a start time: 26SEP292000)
+    "nfl": ["KXNFLGAME"],      # confirmed 2026-10-04 (Detroit order filled)
+    "cfb": ["KXNCAAFGAME"],    # seen in the account's settlements 2026-10-04
+    # Picked from Kalshi's series list ("ATP Tennis Match", "WTA Tennis
+    # Match") 2026-10-07; market layout not yet checked.
+    "tennis": ["KXATPMATCH", "KXWTAMATCH"],
+    # Unverified guess -- confirm with `diagnose markets soccer`.
+    "soccer": ["KXSOCCERGAME"],
 }
+
+# Sports whose Kalshi event date may be a day off from the game date
+# computed here: tennis is played worldwide (e.g. Shanghai in October), so
+# a match's local date and the US date can differ.
+DATE_SLACK_DAYS: dict[Sport, int] = {"tennis": 1}
 
 _EVENT_DATE_RE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})")
 _MONTHS = {m: i for i, m in enumerate(
@@ -107,15 +116,19 @@ class MarketMatcher:
     def candidate_events(self, snapshot: GameSnapshot) -> dict[str, dict[str, dict[str, Any]]]:
         """Open events between these two teams, on any date:
         {event_ticker: {"home": market, "away": market}}."""
-        series_ticker = SERIES_BY_SPORT.get(snapshot.sport)
-        if series_ticker is None:
-            return {}
-        by_event: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
-        for m in self._kalshi.iter_markets(series_ticker=series_ticker, status="open"):
-            side = _label_side(str(m.get("yes_sub_title") or ""), snapshot.home_team, snapshot.away_team)
-            if side is not None:
-                by_event[m.get("event_ticker") or ""][side] = m
-        return {e: sides for e, sides in by_event.items() if "home" in sides and "away" in sides}
+        by_event: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+        for series_ticker in SERIES_BY_SPORT.get(snapshot.sport, []):
+            for m in self._kalshi.iter_markets(series_ticker=series_ticker, status="open"):
+                side = _label_side(str(m.get("yes_sub_title") or ""), snapshot.home_team, snapshot.away_team)
+                if side is not None:
+                    by_event[m.get("event_ticker") or ""][side].append(m)
+        # Exactly one market per team, or the event isn't a plain
+        # "<team> wins" game (e.g. several score markets naming one team).
+        return {
+            e: {side: ms[0] for side, ms in sides.items()}
+            for e, sides in by_event.items()
+            if len(sides.get("home", [])) == 1 and len(sides.get("away", [])) == 1
+        }
 
     def resolve(self, snapshot: GameSnapshot) -> ResolvedMarket | None:
         game = f"{snapshot.away_team} @ {snapshot.home_team}"
@@ -130,6 +143,12 @@ class MarketMatcher:
 
         day = game_date(snapshot)
         same_day = [e for e in events if day is not None and event_date(e) == day]
+        slack = DATE_SLACK_DAYS.get(snapshot.sport, 0)
+        if not same_day and slack and day is not None:
+            same_day = [
+                e for e in events
+                if event_date(e) is not None and abs((event_date(e) - day).days) <= slack
+            ]
         if len(same_day) != 1:
             logger.warning(
                 "%s: need exactly one Kalshi event dated %s, found %d (open events for "

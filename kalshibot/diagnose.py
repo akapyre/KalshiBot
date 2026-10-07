@@ -77,9 +77,12 @@ MARKET_FIELDS = ("ticker", "event_ticker", "title", "subtitle", "yes_sub_title",
 def check_markets(sport: str) -> None:
     kalshi = build_kalshi_client(demo=False)
     matcher = MarketMatcher(kalshi)
-    series = SERIES_BY_SPORT.get(sport)
-    markets = kalshi.iter_markets(series_ticker=series, status="open")
-    print(f"Kalshi series {series}: {len(markets)} open markets\n")
+    markets = []
+    for series in SERIES_BY_SPORT.get(sport, []):
+        found = kalshi.iter_markets(series_ticker=series, status="open")
+        print(f"Kalshi series {series}: {len(found)} open markets")
+        markets.extend(found)
+    print()
 
     if not markets:
         print("That series has no open markets -- it may be the wrong ticker. Kalshi sports series:")
@@ -123,7 +126,7 @@ def check_order() -> None:
     kalshi = build_kalshi_client(demo=False)
     print("Balance:", kalshi.get_balance())
     market = next(
-        (m for m in kalshi.iter_markets(max_pages=1, series_ticker=SERIES_BY_SPORT["nhl"], status="open")
+        (m for m in kalshi.iter_markets(max_pages=1, series_ticker=SERIES_BY_SPORT["nhl"][0], status="open")
          if (yes_ask_cents(m) or 0) > 1),
         None,
     )
@@ -253,6 +256,10 @@ def main() -> None:
             verdict = f"skipped (type={event.get('type')})"
         elif snap is None:
             verdict = "DROPPED (no moneyline or unparseable)"
+            # Which moneyline-style odds this event does carry, to see what
+            # the game-winner line is called for this sport.
+            ml = sorted(k for k, v in event.get("odds", {}).items() if v.get("betTypeID") == "ml")
+            print(f"    dropped event's moneyline oddIDs: {ml[:8] or 'none'}; team keys: {sorted(teams)}")
         elif snap.is_live:
             verdict = "COUNTED AS LIVE"
             sample_live_status = sample_live_status or status
