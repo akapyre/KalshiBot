@@ -69,9 +69,24 @@ logger = logging.getLogger("kalshibot.odds_providers.sportsgameodds")
 
 API_BASE = "https://api.sportsgameodds.com/v2"
 
+# Which moneyline is "the" game line, in order of preference. Soccer
+# sportsbooks quote the 3-way regulation line (home / draw / away), and
+# Kalshi's soccer "<team> wins" markets pay on a regulation win too, so the
+# draw counts as a loss on both. Other sports use the 2-way full-game line.
+MONEYLINES: dict[str, list[tuple[str, str]]] = {
+    "soccer": [("ml3way", "reg"), ("ml", "game"), ("ml", "reg")],
+}
+DEFAULT_MONEYLINES = [("ml", "game")]
+
 LEAGUE_IDS: dict[Sport, list[str]] = {
     "nfl": ["NFL"],
-    "soccer": ["EPL", "LA_LIGA", "BUNDESLIGA", "IT_SERIE_A", "FR_LIGUE_1"],
+    # Top-5 leagues plus the competitions that run during international
+    # breaks and midweek (when the top-5 list alone returns nothing).
+    "soccer": [
+        "EPL", "LA_LIGA", "BUNDESLIGA", "IT_SERIE_A", "FR_LIGUE_1",
+        "UEFA_CHAMPIONS_LEAGUE", "UEFA_EUROPA_LEAGUE", "INTERNATIONAL_SOCCER",
+        "MLS", "LIGA_MX", "EREDIVISIE", "BR_SERIE_A", "EFL_CUP",
+    ],
     "tennis": ["ATP", "WTA"],
     "mlb": ["MLB"],  # confirmed present in GET /v2/leagues
     "cfb": ["NCAAF"],  # confirmed present in GET /v2/leagues (early exploration, not the MLB/NFL session)
@@ -106,21 +121,33 @@ class SportsGameOddsProvider:
         starts_after = (now - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
         starts_before = (now + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        resp = requests.get(
-            f"{API_BASE}/events",
-            headers=self._headers(),
-            params={
+        events: list[dict[str, Any]] = []
+        cursor = None
+        # Follow nextCursor: a busy soccer weekend across many leagues can
+        # hold more than one page of matches.
+        for _ in range(5):
+            params = {
                 "leagueID": ",".join(league_ids),
                 "limit": 100,
                 "startsAfter": starts_after,
                 "startsBefore": starts_before,
-            },
-            # limit=100 responses (with full rosters and odds per event) are
-            # large enough that 10s read timeouts were happening regularly.
-            timeout=30,
-        )
-        resp.raise_for_status()
-        events = resp.json().get("data", [])
+            }
+            if cursor:
+                params["cursor"] = cursor
+            resp = requests.get(
+                f"{API_BASE}/events",
+                headers=self._headers(),
+                params=params,
+                # limit=100 responses (with full rosters and odds per event) are
+                # large enough that 10s read timeouts were happening regularly.
+                timeout=30,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            events.extend(body.get("data", []))
+            cursor = body.get("nextCursor")
+            if not cursor:
+                break
         logger.debug("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
         return events
 
@@ -151,27 +178,7 @@ class SportsGameOddsProvider:
             home_name = home["names"]["long"]
             away_name = away["names"]["long"]
 
-            home_ml = away_ml = None
-            close: dict[str, int] = {}
-            for odd in event.get("odds", {}).values():
-                # Only the game-winner line. Other stats share the "ml" bet
-                # type -- "Shots On Goal Moneyline" (statID shots_onGoal) and
-                # "First Goal Moneyline" were being read as the moneyline,
-                # which is where Edmonton's frozen -770 came from.
-                if (odd.get("statID") != "points" or odd.get("periodID") != "game"
-                        or odd.get("betTypeID") != "ml"):
-                    continue
-                side = odd.get("sideID")
-                closing = odd.get("closeBookOdds") or odd.get("closeFairOdds")
-                if closing is not None and side in ("home", "away"):
-                    close[side] = int(closing)
-                price = odd.get("bookOdds") or odd.get("fairOdds")
-                if price is None:
-                    continue
-                if side == "home":
-                    home_ml = int(price)
-                elif side == "away":
-                    away_ml = int(price)
+            home_ml, away_ml, close = _game_moneyline(sport, event.get("odds", {}))
 
             if home_ml is None or away_ml is None:
                 if game_id not in self._warned_no_odds:
@@ -239,6 +246,32 @@ class SportsGameOddsProvider:
                 "this cycle", event.get("eventID", "?"), exc_info=True,
             )
             return None
+
+
+def _game_moneyline(sport: str, odds: dict[str, Any]) -> tuple[int | None, int | None, dict[str, int]]:
+    """(home price, away price, closing prices) from the sport's preferred
+    game-winner line that has both sides priced."""
+    for bet_type, period in MONEYLINES.get(sport, DEFAULT_MONEYLINES):
+        current: dict[str, int] = {}
+        close: dict[str, int] = {}
+        for odd in odds.values():
+            # Only the game-winner line. Other stats share the "ml" bet
+            # type -- "Shots On Goal Moneyline" (statID shots_onGoal) and
+            # "First Goal Moneyline" were being read as the moneyline,
+            # which is where Edmonton's frozen -770 came from.
+            side = odd.get("sideID")
+            if (odd.get("statID") != "points" or odd.get("periodID") != period
+                    or odd.get("betTypeID") != bet_type or side not in ("home", "away")):
+                continue
+            closing = odd.get("closeBookOdds") or odd.get("closeFairOdds")
+            if closing is not None:
+                close[side] = int(closing)
+            price = odd.get("bookOdds") or odd.get("fairOdds")
+            if price is not None:
+                current[side] = int(price)
+        if len(current) == 2:
+            return current["home"], current["away"], close
+    return None, None, {}
 
 
 def _has_started(status: dict[str, Any]) -> bool:

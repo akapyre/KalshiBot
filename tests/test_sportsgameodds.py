@@ -126,3 +126,44 @@ def test_parse_period_number(period_id, expected):
 )
 def test_parse_clock_seconds(status, expected):
     assert _parse_clock_seconds(status) == expected
+
+
+def test_soccer_uses_the_3way_regulation_line(provider):
+    ev = event(-999, -999, started=True, live=True)   # 2-way placeholders, should be ignored
+    ev["odds"].update({
+        "h3": {"statID": "points", "periodID": "reg", "betTypeID": "ml3way", "sideID": "home",
+               "bookOdds": "+140", "closeBookOdds": "-210"},
+        "d3": {"statID": "points", "periodID": "reg", "betTypeID": "ml3way", "sideID": "draw", "bookOdds": "+230"},
+        "a3": {"statID": "points", "periodID": "reg", "betTypeID": "ml3way", "sideID": "away",
+               "bookOdds": "+190", "closeBookOdds": "+550"},
+    })
+    provider.fetch_events = lambda sport: [ev]
+    [snap] = provider.list_live_games("soccer")
+    assert (snap.favorite_team, snap.pregame_favorite_odds, snap.live_favorite_odds) == ("Chiefs", -210, 140)
+
+
+def test_soccer_falls_back_to_2way_when_no_3way(provider):
+    provider.fetch_events = lambda sport: [event(+120, -150, started=True, live=True, close=(-220, +180))]
+    [snap] = provider.list_live_games("soccer")
+    assert (snap.pregame_favorite_odds, snap.live_favorite_odds) == (-220, 120)
+
+
+def test_fetch_follows_next_cursor(monkeypatch):
+    from kalshibot.odds_providers import sportsgameodds as sgo
+    pages = iter([{"data": [1, 2], "nextCursor": "c"}, {"data": [3]}])
+    seen = []
+
+    class Resp:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    monkeypatch.setattr(sgo.requests, "get", lambda url, headers, params, timeout: seen.append(params.get("cursor")) or Resp(next(pages)))
+    p = sgo.SportsGameOddsProvider(api_key="x", pregame_store=None)
+    assert p.fetch_events("soccer") == [1, 2, 3]
+    assert seen == [None, "c"]

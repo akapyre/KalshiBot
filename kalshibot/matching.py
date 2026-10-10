@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
@@ -43,9 +44,27 @@ SERIES_BY_SPORT: dict[Sport, list[str]] = {
     # Confirmed 2026-10-07: one "<Full Name> wins" market per player, dated
     # event tickers, exchange_index 3.
     "tennis": ["KXATPMATCH", "KXWTAMATCH"],
-    # Unverified guess -- confirm with `diagnose markets soccer`.
-    "soccer": ["KXSOCCERGAME"],
+    # Seen in the account's settlements 2026-10-04. Kalshi gives each
+    # soccer competition its own series, so the rest are found at runtime
+    # from Kalshi's series list (see SERIES_DISCOVERY below).
+    "soccer": ["KXUEFANLGAME", "KXCONCACAFNLGAME"],
 }
+
+# Sports whose Kalshi series are also looked up by name in Kalshi's series
+# list: game-winner series ("...GAME"/"...MATCH") whose ticker or title
+# mentions one of these, and none of the excluded words. A wrongly picked
+# series is harmless -- a market is only bought when both teams, the date
+# and a single "<team> wins" market per team all line up.
+SERIES_DISCOVERY: dict[Sport, tuple[list[str], list[str]]] = {
+    "soccer": (
+        ["soccer", "epl", "premierleague", "laliga", "bundesliga", "seriea", "ligue1",
+         "championsleague", "ucl", "europaleague", "uel", "mls", "ligamx", "nationsleague",
+         "worldcup", "eredivisie", "uefa", "concacaf", "fifa", "brasileir", "eflcup", "carabao"],
+        ["nfl", "nba", "mlb", "nhl", "ncaa", "atp", "wta", "tennis", "hockey", "basketball",
+         "baseball", "cricket", "rugby", "esports"],
+    ),
+}
+DISCOVERY_REFRESH_S = 6 * 3600
 
 # Sports whose Kalshi event date may be a day off from the game date
 # computed here: tennis is played worldwide (e.g. Shanghai in October), so
@@ -124,13 +143,44 @@ class ResolvedMarket:
 class MarketMatcher:
     def __init__(self, kalshi_client: KalshiClient):
         self._kalshi = kalshi_client
+        self._discovered: dict[str, tuple[float, list[str]]] = {}
+
+    def series_for(self, sport: Sport) -> list[str]:
+        """Known series for the sport plus any found by name in Kalshi's
+        series list (refreshed every few hours)."""
+        known = list(SERIES_BY_SPORT.get(sport, []))
+        if sport not in SERIES_DISCOVERY:
+            return known
+        cached = self._discovered.get(sport)
+        if cached is None or time.time() - cached[0] > DISCOVERY_REFRESH_S:
+            include, exclude = SERIES_DISCOVERY[sport]
+            found: list[str] = []
+            try:
+                for s in self._kalshi.list_series(category="Sports").get("series", []):
+                    ticker = str(s.get("ticker") or "")
+                    text = _normalize(ticker + " " + str(s.get("title") or ""))
+                    if (ticker.upper().endswith(("GAME", "MATCH"))
+                            and any(k in text for k in include) and not any(k in text for k in exclude)):
+                        found.append(ticker)
+                logger.info("Kalshi %s series found: %s", sport, ", ".join(sorted(found)) or "none")
+            except Exception as e:
+                logger.warning("Couldn't list Kalshi series for %s: %s", sport, e)
+                found = cached[1] if cached else []
+            cached = (time.time(), found)
+            self._discovered[sport] = cached
+        return known + [t for t in cached[1] if t not in known]
 
     def candidate_events(self, snapshot: GameSnapshot) -> dict[str, dict[str, dict[str, Any]]]:
         """Open events between these two teams, on any date:
         {event_ticker: {"home": market, "away": market}}."""
         by_event: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
-        for series_ticker in SERIES_BY_SPORT.get(snapshot.sport, []):
-            for m in self._kalshi.iter_markets(series_ticker=series_ticker, status="open"):
+        for series_ticker in self.series_for(snapshot.sport):
+            try:
+                markets = self._kalshi.iter_markets(series_ticker=series_ticker, status="open")
+            except Exception as e:
+                logger.warning("Couldn't read Kalshi series %s: %s", series_ticker, e)
+                continue
+            for m in markets:
                 side = _label_side(
                     str(m.get("yes_sub_title") or ""), snapshot.home_team, snapshot.away_team,
                     full_name=snapshot.sport in FULL_NAME_SPORTS,

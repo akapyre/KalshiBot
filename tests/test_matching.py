@@ -12,8 +12,14 @@ from kalshibot.odds_providers.base import GameSnapshot
 
 
 class FakeKalshi:
-    def __init__(self, markets):
+    def __init__(self, markets, series=None):
         self.markets = markets
+        self.series = series or []
+        self.series_calls = 0
+
+    def list_series(self, **params):
+        self.series_calls += 1
+        return {"series": self.series}
 
     def iter_markets(self, **params):
         series = params.get("series_ticker")
@@ -92,10 +98,25 @@ def test_shared_city_label_is_ambiguous():
     assert resolve(markets, snap("New York Islanders", "New York Rangers", "New York Rangers")) is None
 
 
-def test_soccer_tie_market_is_ignored():
-    markets = game_markets("KXSOCCERGAME-26OCT06ARSCHE", ("ARS", "Arsenal"), ("TIE", "Tie"), ("CHE", "Chelsea"))
+EPL_SERIES = [{"ticker": "KXEPLGAME", "title": "English Premier League Game"},
+              {"ticker": "KXNFLGAME", "title": "Pro Football Game"},
+              {"ticker": "KXEPLTOTAL", "title": "EPL Total Goals"}]
+
+
+def test_soccer_series_found_by_name_and_tie_market_ignored():
+    markets = game_markets("KXEPLGAME-26OCT06ARSCHE", ("ARS", "Arsenal"), ("TIE", "Tie"), ("CHE", "Chelsea"))
     game = snap("Arsenal", "Chelsea", "Chelsea", start="2026-10-06T14:00:00Z", sport="soccer")
-    assert resolve(markets, game).ticker == "KXSOCCERGAME-26OCT06ARSCHE-CHE"
+    matcher = MarketMatcher(FakeKalshi(markets, series=EPL_SERIES))
+    assert matcher.resolve(game).ticker == "KXEPLGAME-26OCT06ARSCHE-CHE"
+    # Only game-winner soccer series are picked, and the list is cached.
+    assert matcher.series_for("soccer") == ["KXUEFANLGAME", "KXCONCACAFNLGAME", "KXEPLGAME"]
+    assert matcher._kalshi.series_calls == 1
+
+
+def test_known_soccer_series_works_without_discovery():
+    markets = game_markets("KXUEFANLGAME-26OCT10ESPFRA", ("ESP", "Spain"), ("TIE", "Tie"), ("FRA", "France"))
+    game = snap("Spain", "France", "Spain", start="2026-10-10T18:45:00Z", sport="soccer")
+    assert resolve(markets, game).ticker == "KXUEFANLGAME-26OCT10ESPFRA-ESP"
 
 
 def test_mlb_layout_with_start_time_and_short_city_letter():

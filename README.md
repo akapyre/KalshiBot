@@ -106,3 +106,26 @@ Run tests any time with `python3 -m pytest tests/ -v`.
 5. Kalshi sports event contracts are legal, CFTC-regulated products, but
    confirm you're comfortable with the tax/reporting implications of
    automated trading before running this unattended.
+
+## Running on a Mac
+
+First time (Terminal):
+
+```
+git clone https://github.com/akapyre/KalshiBot.git ~/KalshiBot   # skip if already there
+cd ~/KalshiBot
+git checkout claude/fervent-ramanujan-4dmrfn
+python3 -m venv .venv
+```
+
+Then copy these from the Windows PC into `~/KalshiBot` (AirDrop, USB, email
+to yourself -- never into git): `.env`, the Kalshi private key `.pem` file
+that `.env` points at, and the whole `state/` folder (it remembers which
+games were already bet and the win/loss record).
+
+Every time after that: `cd ~/KalshiBot && ./start.sh` (or `./start.sh --dry`).
+`start.sh` updates the code, activates `.venv`, and keeps the Mac awake with
+`caffeinate`. Closing the lid still puts it to sleep -- leave it open.
+
+**Run the bot on one computer at a time.** Each machine keeps its own
+`state/`, so two running copies would each place the same bet.

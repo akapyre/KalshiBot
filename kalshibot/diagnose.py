@@ -83,7 +83,7 @@ def check_markets(sport: str) -> None:
     kalshi = build_kalshi_client(demo=False)
     matcher = MarketMatcher(kalshi)
     markets = []
-    for series in SERIES_BY_SPORT.get(sport, []):
+    for series in matcher.series_for(sport):
         found = kalshi.iter_markets(series_ticker=series, status="open")
         print(f"Kalshi series {series}: {len(found)} open markets")
         markets.extend(found)
@@ -324,7 +324,7 @@ def main() -> None:
             verdict = "DROPPED (no moneyline or unparseable)"
             # Which moneyline-style odds this event does carry, to see what
             # the game-winner line is called for this sport.
-            ml = sorted(k for k, v in event.get("odds", {}).items() if v.get("betTypeID") == "ml")
+            ml = sorted(k for k, v in event.get("odds", {}).items() if "ml" in str(v.get("betTypeID")))
             print(f"    dropped event's moneyline oddIDs: {ml[:8] or 'none'}; team keys: {sorted(teams)}")
         elif snap.is_live:
             verdict = "COUNTED AS LIVE"
