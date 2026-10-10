@@ -51,7 +51,7 @@ SERIES_BY_SPORT: dict[Sport, list[str]] = {
 }
 
 # Sports whose Kalshi series are also looked up by name in Kalshi's series
-# list: game-winner series ("...GAME"/"...MATCH") whose ticker or title
+# list: game-winner series ("...GAME") whose ticker or title
 # mentions one of these, and none of the excluded words. A wrongly picked
 # series is harmless -- a market is only bought when both teams, the date
 # and a single "<team> wins" market per team all line up.
@@ -61,9 +61,16 @@ SERIES_DISCOVERY: dict[Sport, tuple[list[str], list[str]]] = {
          "championsleague", "ucl", "europaleague", "uel", "mls", "ligamx", "nationsleague",
          "worldcup", "eredivisie", "uefa", "concacaf", "fifa", "brasileir", "eflcup", "carabao"],
         ["nfl", "nba", "mlb", "nhl", "ncaa", "atp", "wta", "tennis", "hockey", "basketball",
-         "baseball", "cricket", "rugby", "esports"],
+         "baseball", "cricket", "rugby", "esports", "fiba", "women"],
     ),
 }
+
+# Ticker shapes to leave out even when the name matches. Seen 2026-10-10:
+#   KXSERIEAWGAME, KXUCLWGAME ...  women's competitions ("W" before GAME) --
+#       same club names as the men's games the odds feed covers
+#   KXBBSERIEA2GAME               Italian basketball Serie A2
+#   KXLPLMATCH, KXCPLMATCH        esports / cricket "Premier League" series
+SERIES_DISCOVERY_SKIP = re.compile(r"WGAME$|^KXBB|MATCH$")
 DISCOVERY_REFRESH_S = 6 * 3600
 
 # Sports whose Kalshi event date may be a day off from the game date
@@ -159,7 +166,7 @@ class MarketMatcher:
                 for s in self._kalshi.list_series(category="Sports").get("series", []):
                     ticker = str(s.get("ticker") or "")
                     text = _normalize(ticker + " " + str(s.get("title") or ""))
-                    if (ticker.upper().endswith(("GAME", "MATCH"))
+                    if (ticker.upper().endswith("GAME") and not SERIES_DISCOVERY_SKIP.search(ticker.upper())
                             and any(k in text for k in include) and not any(k in text for k in exclude)):
                         found.append(ticker)
                 logger.info("Kalshi %s series found: %s", sport, ", ".join(sorted(found)) or "none")

@@ -100,7 +100,13 @@ def test_shared_city_label_is_ambiguous():
 
 EPL_SERIES = [{"ticker": "KXEPLGAME", "title": "English Premier League Game"},
               {"ticker": "KXNFLGAME", "title": "Pro Football Game"},
-              {"ticker": "KXEPLTOTAL", "title": "EPL Total Goals"}]
+              {"ticker": "KXEPLTOTAL", "title": "EPL Total Goals"},
+              # real false positives from Kalshi's list, 2026-10-10
+              {"ticker": "KXSERIEAWGAME", "title": "Serie A Women Game"},
+              {"ticker": "KXUCLWGAME", "title": "UEFA Champions League Women"},
+              {"ticker": "KXBBSERIEA2GAME", "title": "Serie A2"},
+              {"ticker": "KXFIBACHAMPLEAGUEGAME", "title": "FIBA Champions League"},
+              {"ticker": "KXCPLMATCH", "title": "Caribbean Premier League"}]
 
 
 def test_soccer_series_found_by_name_and_tie_market_ignored():
