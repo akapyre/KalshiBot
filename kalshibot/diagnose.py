@@ -8,7 +8,8 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose leagues       (every SportsGameOdds league on your plan)
        python -m kalshibot.diagnose notify        (test phone notifications)
        python -m kalshibot.diagnose site          (build and publish the results page now)
-       python -m kalshibot.diagnose record        (the bot's wins and losses; add "import" for past bets)
+       python -m kalshibot.diagnose record        (the bot's wins and losses; add "import" for past bets,
+                                                  or "reset" to start over at 0-0 -- stop the bot first)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
 
 Runs the exact same query and parsing as the live bot, then prints each
@@ -257,6 +258,15 @@ def import_bot_orders(kalshi: KalshiClient, ledger: BetLedger) -> None:
     print(f"Imported {added} past bot bet(s).\n")
 
 
+def reset_record() -> None:
+    ledger = BetLedger()
+    backup = ledger.reset()
+    print(f"Record reset to 0-0. Old record saved as {backup}.")
+    if ledger.open_bets():
+        print(f"Kept {len(ledger.open_bets())} open bet(s); they'll count once they settle.")
+    check_site()
+
+
 def check_record(do_import: bool) -> None:
     ledger = BetLedger()
     if do_import:
@@ -299,6 +309,9 @@ def main() -> None:
         check_notify()
         return
     if sport == "record":
+        if len(sys.argv) > 2 and sys.argv[2] == "reset":
+            reset_record()
+            return
         check_record(do_import=len(sys.argv) > 2 and sys.argv[2] == "import")
         return
     if sport == "leagues":

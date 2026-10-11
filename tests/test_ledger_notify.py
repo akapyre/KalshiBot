@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -108,3 +109,13 @@ def test_settlement_pass_marks_bets_and_notifies(tmp_path, monkeypatch):
     assert pushed == [("LOST: Detroit Lions -$15.42", "Record 0-1 · Net -15.42 USD · 0 open")]
     bot.settle_finished_bets(K(), ledger)   # nothing open: no second notification
     assert len(pushed) == 1
+
+
+def test_reset_starts_at_zero_keeps_open_bets_and_backs_up(tmp_path):
+    ledger = BetLedger(tmp_path / "ledger.json")
+    bet(ledger, "o1"); bet(ledger, "o2"); bet(ledger, "o3")
+    ledger.settle("o1", "yes"); ledger.settle("o2", "no")
+    backup = ledger.reset()
+    assert ledger.summary() == {"wins": 0, "losses": 0, "net": 0, "open": 1}
+    assert len(json.loads(backup.read_text())) == 3
+    assert BetLedger(tmp_path / "ledger.json").summary()["open"] == 1

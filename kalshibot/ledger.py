@@ -67,6 +67,18 @@ class BetLedger:
             self._save()
             return bet
 
+    def reset(self) -> Path:
+        """Start the record over at 0-0. The old ledger is kept as a dated
+        backup next to it; bets still open stay, so they count once they
+        settle. Returns the backup path."""
+        with self._lock:
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup = self._path.with_name(f"{self._path.stem}-backup-{stamp}.json")
+            backup.write_text(json.dumps(self._bets, indent=2))
+            self._bets = [b for b in self._bets if b["status"] == "open"]
+            self._save()
+            return backup
+
     def summary(self) -> dict[str, Any]:
         done = [b for b in self._bets if b["status"] in ("won", "lost")]
         return {
