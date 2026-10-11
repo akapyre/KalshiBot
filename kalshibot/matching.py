@@ -114,8 +114,13 @@ def _label_names(label: str, team: str, full_name: bool = False) -> bool:
     return lab in _normalize(team) or any(len(t) >= 3 and t in lab for t in specific)
 
 
+# Kalshi's first-half labels carry the outcome: "Liverpool wins 1st Half".
+_WINS_SUFFIX = re.compile(r"\s+wins(\s.*)?$", re.IGNORECASE)
+
+
 def _label_side(label: str, home: str, away: str, full_name: bool = False) -> str | None:
     """"home"/"away" if the label names exactly one of the two teams."""
+    label = _WINS_SUFFIX.sub("", label)
     h, a = _label_names(label, home, full_name), _label_names(label, away, full_name)
     if h and not a:
         return "home"

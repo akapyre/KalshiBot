@@ -222,3 +222,18 @@ def test_first_half_bet_uses_the_first_half_market():
     matcher = MarketMatcher(FakeKalshi(markets, series=FIRST_HALF_SERIES))
     assert matcher.resolve(game, "first_half").ticker == "KXEPL1HGAME-26OCT18ARSCHE-ARS"
     assert matcher.resolve(game).ticker == "KXEPLGAME-26OCT18ARSCHE-ARS"
+
+
+@pytest.mark.parametrize("label, team", [
+    ("Liverpool wins 1st Half", "Liverpool FC"),
+    ("Hull wins 1st Half", "Hull City"),
+    ("Nottingham wins 1st Half", "Nottingham Forest"),
+    ("AC Milan wins 1st Half", "AC Milan"),
+])
+def test_first_half_labels_with_wins_suffix_match(label, team):
+    markets = game_markets("KXEPL1HGAME-26OCT11XXXYYY", ("A", label), ("TIE", "Tie 1st Half"),
+                           ("B", "Chelsea wins 1st Half"))
+    game = snap(team, "Chelsea FC", team, start="2026-10-11T14:00:00Z", sport="soccer")
+    matcher = MarketMatcher(FakeKalshi(markets, series=FIRST_HALF_SERIES))
+    r = matcher.resolve(game, "first_half")
+    assert r is not None and r.ticker == "KXEPL1HGAME-26OCT11XXXYYY-A"
