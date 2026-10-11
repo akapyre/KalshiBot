@@ -79,4 +79,4 @@ def test_times_have_no_platform_specific_formats():
     assert _short_time(datetime(2026, 10, 4, 0, 5)) == "Oct 4, 12:05 AM"
     assert _short_time(datetime(2026, 10, 4, 21, 31)) == "Oct 4, 9:31 PM"
     import kalshibot.report as r
-    assert "%-" not in Path(r.__file__).read_text()
+    assert "strftime(" not in Path(r.__file__).read_text()

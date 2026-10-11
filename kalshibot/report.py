@@ -42,7 +42,8 @@ def odds(o: Any) -> str:
     return "—" if o is None else f"{int(o):+d}"
 
 
-# Built by hand: "%-d" / "%-I" (no leading zero) don't exist on Windows.
+# Built by hand: strftime's no-leading-zero day/hour codes are Unix-only and
+# raise ValueError on Windows.
 def _clock(dt: datetime) -> str:
     return f"{dt.hour % 12 or 12}:{dt:%M} {'AM' if dt.hour < 12 else 'PM'}"
 
