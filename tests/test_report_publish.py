@@ -72,3 +72,11 @@ def test_publisher_without_settings_stays_local(tmp_path, monkeypatch):
     p = SitePublisher(tmp_path / "index.html", repo="", token="")
     p.update("<html/>", force=True)
     assert (tmp_path / "index.html").exists() and not p.enabled
+
+
+def test_times_have_no_platform_specific_formats():
+    from kalshibot.report import _short_time
+    assert _short_time(datetime(2026, 10, 4, 0, 5)) == "Oct 4, 12:05 AM"
+    assert _short_time(datetime(2026, 10, 4, 21, 31)) == "Oct 4, 9:31 PM"
+    import kalshibot.report as r
+    assert "%-" not in Path(r.__file__).read_text()

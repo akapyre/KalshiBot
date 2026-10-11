@@ -42,6 +42,15 @@ def odds(o: Any) -> str:
     return "—" if o is None else f"{int(o):+d}"
 
 
+# Built by hand: "%-d" / "%-I" (no leading zero) don't exist on Windows.
+def _clock(dt: datetime) -> str:
+    return f"{dt.hour % 12 or 12}:{dt:%M} {'AM' if dt.hour < 12 else 'PM'}"
+
+
+def _short_time(dt: datetime) -> str:
+    return f"{dt:%b} {dt.day}, {_clock(dt)}"
+
+
 def _when(iso: str | None) -> str:
     if not iso:
         return "—"
@@ -49,7 +58,7 @@ def _when(iso: str | None) -> str:
         dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone()
     except ValueError:
         return escape(iso)
-    return dt.strftime("%b %-d, %-I:%M %p")
+    return _short_time(dt)
 
 
 def load_rule_texts(path: str | Path = "config/rules.yaml") -> list[dict[str, str]]:
@@ -262,7 +271,8 @@ def build_html(bets: list[dict[str, Any]], rules: list[dict[str, str]], live: li
     rule_opts = "".join(f'<option value="{escape(r)}">{escape(rule_label(r))}</option>' for r in rules_in)
 
     mode_pill = _pill("Live trading", "pos") if mode == "live" else _pill("Logging only", "muted")
-    updated = generated_at.astimezone().strftime("%b %-d, %Y at %-I:%M %p %Z")
+    local = generated_at.astimezone()
+    updated = f"{local:%b} {local.day}, {local.year} at {_clock(local)} {local.tzname() or ''}".strip()
 
     return PAGE.format(
         mode_pill=mode_pill, updated=escape(updated), tiles=tiles, chart=_chart(bets),
