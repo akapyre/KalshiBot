@@ -289,12 +289,15 @@ def check_site() -> None:
     from .report import build_html, load_rule_texts
     publisher = SitePublisher()
     html = build_html(BetLedger().all_bets(), load_rule_texts(), [], mode="live")
-    publisher.update(html, force=True)
+    uploaded = publisher.update(html, force=True)
     print("Wrote site/index.html (open it in a browser to preview).")
-    if publisher.enabled:
+    if not publisher.enabled:
+        print("Not published: add RESULTS_REPO and GITHUB_TOKEN to .env.")
+    elif uploaded:
         print(f"Uploaded -- live in a minute or two at {publisher.url}")
     else:
-        print("Not published: add RESULTS_REPO and GITHUB_TOKEN to .env.")
+        print("NOT uploaded -- see the warning above. A 403 means the GitHub token can't write to "
+              f"{publisher.url}'s repository: give it Contents: Read and write on that repository.")
 
 
 def main() -> None:

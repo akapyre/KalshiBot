@@ -70,7 +70,10 @@ SERIES_DISCOVERY: dict[Sport, tuple[list[str], list[str]]] = {
 #       same club names as the men's games the odds feed covers
 #   KXBBSERIEA2GAME               Italian basketball Serie A2
 #   KXLPLMATCH, KXCPLMATCH        esports / cricket "Premier League" series
-SERIES_DISCOVERY_SKIP = re.compile(r"WGAME$|^KXBB|MATCH$")
+#   KXESOCCERGAME                 e-soccer (video-game matches between real
+#       club names -- could pass for the real fixture)
+#   KXWCGOALEVERYGAME, KXWCTEAMSINGAME, KXMLSASTGAME  novelty / all-star
+SERIES_DISCOVERY_SKIP = re.compile(r"WGAME$|^KXBB|MATCH$|^KXESOCCER|GOALEVERY|TEAMSIN|ASTGAME$")
 
 # First-half result series ("1H", "first half") -- kept apart from the
 # full-game series, and without first-half spreads, totals and the like.

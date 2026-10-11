@@ -170,7 +170,12 @@ class Executor:
             cost, fee = None, None
             if order_id:
                 try:
-                    cost, fee = order_cost(self._kalshi.get_order(order_id))
+                    # The single-order endpoint 404s for V2 orders; the
+                    # orders list for this market carries the fill cost.
+                    orders = self._kalshi.get_portfolio("orders", ticker=ticker, limit=50).get("orders", [])
+                    mine = next((o for o in orders if o.get("order_id") == order_id), None)
+                    if mine is not None:
+                        cost, fee = order_cost(mine)
                 except Exception as e:
                     logger.warning("Couldn't read the order's exact cost (%s); estimating it", e)
             if cost is None:

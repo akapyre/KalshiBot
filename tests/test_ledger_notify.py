@@ -74,8 +74,10 @@ class FakeKalshi:
     def create_order(self, **order):
         return {"order_id": "o9", "fill_count": "21.00"}
 
-    def get_order(self, order_id):
-        return {"order": {"taker_fill_cost_dollars": "14.700000", "taker_fees_dollars": "0.300000"}}
+    def get_portfolio(self, kind, **params):
+        assert kind == "orders" and params["ticker"] == "T"
+        return {"orders": [{"order_id": "other"},
+                           {"order_id": "o9", "taker_fill_cost_dollars": "14.700000", "taker_fees_dollars": "0.300000"}]}
 
 
 def test_filled_live_bet_goes_in_the_ledger_and_to_the_phone(tmp_path, monkeypatch):

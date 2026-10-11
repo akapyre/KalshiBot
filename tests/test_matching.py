@@ -106,7 +106,10 @@ EPL_SERIES = [{"ticker": "KXEPLGAME", "title": "English Premier League Game"},
               {"ticker": "KXUCLWGAME", "title": "UEFA Champions League Women"},
               {"ticker": "KXBBSERIEA2GAME", "title": "Serie A2"},
               {"ticker": "KXFIBACHAMPLEAGUEGAME", "title": "FIBA Champions League"},
-              {"ticker": "KXCPLMATCH", "title": "Caribbean Premier League"}]
+              {"ticker": "KXCPLMATCH", "title": "Caribbean Premier League"},
+              {"ticker": "KXESOCCERGAME", "title": "eSoccer Game"},
+              {"ticker": "KXWCGOALEVERYGAME", "title": "World Cup goal every game"},
+              {"ticker": "KXMLSASTGAME", "title": "MLS All-Star Game"}]
 
 
 def test_soccer_series_found_by_name_and_tie_market_ignored():

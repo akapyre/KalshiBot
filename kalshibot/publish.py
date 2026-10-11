@@ -46,21 +46,24 @@ class SitePublisher:
         owner, name = self._repo.split("/", 1)
         return f"https://{owner}.github.io/{name}/"
 
-    def update(self, html: str, force: bool = False) -> None:
-        """Save locally every time; upload when due. Never raises."""
+    def update(self, html: str, force: bool = False) -> bool:
+        """Save locally every time; upload when due. Never raises. True if
+        it was uploaded this call."""
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(html, encoding="utf-8")
         except OSError as e:
             logger.warning("Couldn't write %s: %s", self._path, e)
         if not self.enabled or (not force and time.time() - self._last_upload < self._every_s):
-            return
+            return False
         try:
             self._upload(html)
             self._last_upload = time.time()
+            return True
         except Exception as e:
             # Keep the token out of logs: only the status and GitHub's message.
             logger.warning("Results page upload failed: %s", e)
+            return False
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}", "Accept": "application/vnd.github+json",
