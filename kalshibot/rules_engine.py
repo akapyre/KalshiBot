@@ -177,6 +177,14 @@ class RulesEngine:
         rule = next((r for r in self._rules if r.id == rule_id), None)
         return kalshi_price_problem(rule, ask_cents) if rule else None
 
+    def watched_rules(self, snapshot: GameSnapshot) -> list[str]:
+        """Rules whose pregame condition this game meets -- the games worth
+        showing in the log every cycle, whether or not they trigger."""
+        if snapshot.pregame_favorite_odds is None:
+            return []
+        return [r.id for r in self._rules
+                if r.sport == snapshot.sport and _pregame_ok(r, snapshot.pregame_favorite_odds)]
+
     def evaluate(self, snapshot: GameSnapshot) -> list[BetDecision]:
         decisions: list[BetDecision] = []
         for rule in self._rules:

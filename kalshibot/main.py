@@ -143,6 +143,16 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
             live_counts[sport] = len(snapshots)
 
             for snapshot in snapshots:
+                watched = engine.watched_rules(snapshot)
+                if watched:
+                    # A qualifying favorite is live: show where it stands each
+                    # cycle, so a missed bet can be traced afterwards.
+                    logger.info(
+                        "WATCHING %s: %s (pregame %+d) live %+d | %s @ %s %s-%s | %s",
+                        snapshot.sport, snapshot.favorite_team, snapshot.pregame_favorite_odds,
+                        snapshot.live_favorite_odds, snapshot.away_team, snapshot.home_team,
+                        snapshot.away_score, snapshot.home_score, ", ".join(watched),
+                    )
                 decisions = engine.evaluate(snapshot)
                 for decision in decisions:
                     # Logged before any Kalshi call, so a trigger is visible

@@ -327,3 +327,11 @@ def test_kalshi_price_must_respect_the_rule_band(tmp_path, rule_id, ask, ok):
     rules, stake = load_rules(RULES_PATH)
     engine = RulesEngine(rules, stake, BetStateStore(tmp_path / "b.json"))
     assert (engine.kalshi_price_problem(rule_id, ask) is None) == ok
+
+
+def test_watched_rules_lists_rules_whose_pregame_condition_is_met(engine):
+    eng, _ = engine
+    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-400, live_favorite_odds=-250)) \
+        == ["tennis_heavy_favorite"]
+    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-200)) == []
+    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=None)) == []
