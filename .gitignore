@@ -7,3 +7,4 @@ state/
 venv/
 .venv/
 logs/
+site/

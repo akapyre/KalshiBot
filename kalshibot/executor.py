@@ -179,7 +179,9 @@ class Executor:
             if self._ledger is not None and order_id:
                 self._ledger.record(order_id=order_id, ticker=ticker, team=decision.team,
                                     sport=decision.sport, rule=decision.rule_id,
-                                    contracts=contracts, cost=cost, fee=fee)
+                                    contracts=contracts, cost=cost, fee=fee,
+                                    game=decision.game or None, pregame_odds=decision.pregame_odds,
+                                    live_odds=decision.live_odds, price_cents=price_cents)
                 summary = self._ledger.summary()
             notify.send(
                 f"Bet placed: {decision.team}",

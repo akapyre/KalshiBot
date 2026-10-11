@@ -17,6 +17,8 @@ load_dotenv()
 from . import notify
 from .executor import Executor, american_odds, yes_ask_cents
 from .ledger import BetLedger, record_line
+from .publish import SitePublisher
+from .report import build_html, load_rule_texts
 from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, KalshiCredentials
 from .matching import MarketMatcher
 from .odds_providers.base import Sport
@@ -91,6 +93,19 @@ def settle_finished_bets(kalshi: KalshiClient, ledger: BetLedger) -> None:
             notify.send(f"Void/refunded: {settled['team']}", line, tags=["leftwards_arrow_with_hook"])
 
 
+PERIOD_NAMES = {"nfl": "Q", "cfb": "Q", "nhl": "P", "mlb": "Inning ", "tennis": "Set ", "soccer": "Half "}
+
+
+def period_text(snapshot) -> str:
+    if snapshot.period is None:
+        return "—"
+    return f"{PERIOD_NAMES.get(snapshot.sport, '')}{snapshot.period}"
+
+
+def _ledger_signature(ledger: BetLedger) -> tuple:
+    return tuple((b["order_id"], b["status"]) for b in ledger.all_bets())
+
+
 def _kalshi_error_code(body: str) -> str:
     try:
         return json.loads(body).get("error", {}).get("code") or "error"
@@ -125,6 +140,13 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     # (game, rule, error code) already sent to the phone, so a failure that
     # repeats every cycle (e.g. insufficient balance) notifies only once.
     notified_failures: set[tuple[str, str, str]] = set()
+    publisher = SitePublisher()
+    rule_texts = load_rule_texts()
+    if publisher.enabled:
+        logger.info("Results page: site/index.html, published to %s", publisher.url)
+    else:
+        logger.info("Results page: site/index.html (set RESULTS_REPO and GITHUB_TOKEN in .env to publish it)")
+    site_mode = "live" if (not dry_run and executor._trading_enabled()) else "logging"
 
     logger.info(
         "KalshiBot starting: dry_run=%s demo_env=%s stake=$%.2f loss_cap=%s max_positions=%s",
@@ -148,6 +170,8 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
 
     while True:
         live_counts: dict[str, int] = {}
+        live_rows: list[dict] = []
+        ledger_before = _ledger_signature(ledger)
         for sport in SPORTS:
             try:
                 snapshots = odds_provider.list_live_games(sport)
@@ -161,6 +185,14 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
             for snapshot in snapshots:
                 watched = engine.watched_rules(snapshot)
                 if watched:
+                    live_rows.append({
+                        "sport": snapshot.sport, "favorite": snapshot.favorite_team,
+                        "game": f"{snapshot.away_team} @ {snapshot.home_team}",
+                        "pregame": snapshot.pregame_favorite_odds, "live": snapshot.live_favorite_odds,
+                        "score": f"{snapshot.away_score}-{snapshot.home_score}"
+                                 if snapshot.home_score is not None else "—",
+                        "period": period_text(snapshot), "rules": watched,
+                    })
                     # A qualifying favorite is live: show where it stands each
                     # cycle, so a missed bet can be traced afterwards.
                     logger.info(
@@ -230,6 +262,12 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                             )
 
         settle_finished_bets(kalshi, ledger)
+        try:
+            html = build_html(ledger.all_bets(), rule_texts, live_rows, mode=site_mode)
+            # Upload straight away when a bet was placed or settled this cycle.
+            publisher.update(html, force=_ledger_signature(ledger) != ledger_before)
+        except Exception:
+            logger.exception("Couldn't build the results page this cycle")
         logger.info("Poll cycle done: %s", live_counts or "no sports queried successfully")
         time.sleep(poll_interval_s)
 

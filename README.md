@@ -129,3 +129,29 @@ Every time after that: `cd ~/KalshiBot && ./start.sh` (or `./start.sh --dry`).
 
 **Run the bot on one computer at a time.** Each machine keeps its own
 `state/`, so two running copies would each place the same bet.
+
+## Results website
+
+Every cycle the bot writes `site/index.html` (open it in a browser any time).
+To put it online like a GitHub Pages site:
+
+1. On github.com create a new **public** repository, e.g. `kalshi-bot-results`,
+   ticking "Add a README file".
+2. In that repository: Settings -> Pages -> Source "Deploy from a branch",
+   Branch `main`, folder `/ (root)`, Save.
+3. Create a token: github.com -> Settings -> Developer settings -> Personal
+   access tokens -> Fine-grained tokens -> Generate new token. Repository
+   access: "Only select repositories" -> the results repository. Repository
+   permissions: Contents -> Read and write. Copy the token.
+4. Add to `.env`:
+   ```
+   RESULTS_REPO=yourname/kalshi-bot-results
+   GITHUB_TOKEN=github_pat_...
+   ```
+5. `python -m kalshibot.diagnose site` publishes once; the page appears at
+   `https://yourname.github.io/kalshi-bot-results/` within a couple of minutes.
+   After that the bot updates it every 10 minutes and right after each bet
+   is placed or settles.
+
+The page is public: anyone with the link sees the bets and results (never
+keys or balances).

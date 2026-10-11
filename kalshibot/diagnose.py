@@ -7,6 +7,7 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose account       (orders/fills/positions on this key)
        python -m kalshibot.diagnose leagues       (every SportsGameOdds league on your plan)
        python -m kalshibot.diagnose notify        (test phone notifications)
+       python -m kalshibot.diagnose site          (build and publish the results page now)
        python -m kalshibot.diagnose record        (the bot's wins and losses; add "import" for past bets)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
 
@@ -271,10 +272,28 @@ def check_record(do_import: bool) -> None:
     print("\n" + record_line(ledger.summary()))
 
 
+def check_site() -> None:
+    """Build the results page now and publish it if RESULTS_REPO and
+    GITHUB_TOKEN are set -- to test publishing without waiting for the bot."""
+    from .publish import SitePublisher
+    from .report import build_html, load_rule_texts
+    publisher = SitePublisher()
+    html = build_html(BetLedger().all_bets(), load_rule_texts(), [], mode="live")
+    publisher.update(html, force=True)
+    print("Wrote site/index.html (open it in a browser to preview).")
+    if publisher.enabled:
+        print(f"Uploaded -- live in a minute or two at {publisher.url}")
+    else:
+        print("Not published: add RESULTS_REPO and GITHUB_TOKEN to .env.")
+
+
 def main() -> None:
     sport = sys.argv[1] if len(sys.argv) > 1 else "nfl"
     if sport == "kalshi":
         check_kalshi()
+        return
+    if sport == "site":
+        check_site()
         return
     if sport == "notify":
         check_notify()

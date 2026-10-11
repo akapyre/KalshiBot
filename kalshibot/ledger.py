@@ -26,12 +26,16 @@ class BetLedger:
         return any(b["order_id"] == order_id for b in self._bets)
 
     def record(self, *, order_id: str, ticker: str, team: str, sport: str, rule: str,
-               contracts: float, cost: float, fee: float | None, placed_at: str | None = None) -> dict[str, Any]:
+               contracts: float, cost: float, fee: float | None, placed_at: str | None = None,
+               **details: Any) -> dict[str, Any]:
+        """`details` adds context for the results page: game ("Away @ Home"),
+        pregame_odds, live_odds, price_cents."""
         bet = {
             "order_id": order_id, "ticker": ticker, "team": team, "sport": sport, "rule": rule,
             "contracts": contracts, "cost": round(cost, 4), "fee": None if fee is None else round(fee, 4),
             "placed_at": placed_at or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "status": "open", "pnl": None,
+            "status": "open", "pnl": None, "settled_at": None,
+            **{k: v for k, v in details.items() if v is not None},
         }
         with self._lock:
             if not self.has(order_id):
@@ -59,6 +63,7 @@ class BetLedger:
                 bet["status"], bet["pnl"] = "lost", round(-outlay, 2)
             else:
                 bet["status"], bet["pnl"] = "void", 0.0
+            bet["settled_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self._save()
             return bet
 

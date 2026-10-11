@@ -71,6 +71,8 @@ class BetDecision:
     live_odds: int
     stake_usd: float
     market: str = "game"   # see Rule.market
+    pregame_odds: int | None = None
+    game: str = ""         # "Away @ Home", for the log and results page
 
 
 def load_rules(path: str | Path = "config/rules.yaml") -> tuple[list[Rule], float]:
@@ -232,6 +234,8 @@ class RulesEngine:
                     live_odds=_rule_odds(rule, snapshot),
                     stake_usd=self._stake_usd,
                     market=rule.market,
+                    pregame_odds=snapshot.pregame_favorite_odds,
+                    game=f"{snapshot.away_team} @ {snapshot.home_team}",
                 )
             )
         return decisions

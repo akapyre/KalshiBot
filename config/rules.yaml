@@ -86,6 +86,7 @@ stake_usd: 15
 
 rules:
   - id: soccer_heavy_favorite
+    summary: "Favorite opened at -200 or stronger. Bet it when its live odds drift to +100 to +200; not past +200."   # plain-English version for the results page
     sport: soccer
     description: >
       Pregame favorite at -200 or steeper. Wager on that team when its live
@@ -101,6 +102,7 @@ rules:
     max_bets_per_game: 2       # so soccer_first_half_favorite on the same match doesn't block it
 
   - id: soccer_moderate_favorite
+    summary: "Favorite opened between -150 and -199. Bet it when its live odds move past +115; not if it's down a goal after halftime, or past +200."   # plain-English version for the results page
     sport: soccer
     description: >
       Pregame favorite at -150 (band: -150 to -199). Wager when live price
@@ -119,6 +121,7 @@ rules:
     max_bets_per_game: 1
 
   - id: soccer_first_half_favorite
+    summary: "Favorite opened at -300 or stronger. While it's 0-0 in the first half, bet it to win the first half when its first-half odds are -130 to +120."   # plain-English version for the results page
     sport: soccer
     market: first_half         # first-half odds, and a bet on the first-half result
     description: >
@@ -138,6 +141,7 @@ rules:
     max_bets_per_game: 2       # can bet alongside soccer_heavy_favorite on the same match
 
   - id: tennis_heavy_favorite
+    summary: "Favorite opened at -200 or stronger. Bet it when its live odds fade to near even: -110 to +100."   # plain-English version for the results page
     sport: tennis
     description: >
       Pregame favorite at -200 or steeper. Wager when the favorite's live
@@ -152,6 +156,7 @@ rules:
     max_bets_per_game: 1
 
   - id: nfl_favorite_fade
+    summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 or longer."   # plain-English version for the results page
     sport: nfl
     description: >
       Pregame favorite at -250 or steeper. First wager when live price has
@@ -165,6 +170,7 @@ rules:
     max_bets_per_game: 3       # so it never blocks nfl_moderate_favorite or nfl_fourth_quarter_reentry
 
   - id: nfl_fourth_quarter_reentry
+    summary: "After a favorite-fade bet on the same game: bet again in the 4th quarter if the favorite is +110 to +165."   # plain-English version for the results page
     sport: nfl
     description: >
       Extra wager on the same game as nfl_favorite_fade, only in the 4th
@@ -181,6 +187,7 @@ rules:
     max_bets_per_game: 3       # so it never blocks the other two NFL rules
 
   - id: nfl_moderate_favorite
+    summary: "Favorite opened at -150 or stronger. Bet it once when its live odds are +100 to +150."   # plain-English version for the results page
     sport: nfl
     description: >
       Pregame favorite at -150 or steeper -- open-ended, deliberately
@@ -202,6 +209,7 @@ rules:
     max_bets_per_game: 3
 
   - id: cfb_favorite_fade
+    summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 or longer."   # plain-English version for the results page
     sport: cfb
     description: >
       Same rule as nfl_favorite_fade, applied to college football. Pregame
@@ -216,6 +224,7 @@ rules:
     max_bets_per_game: 3       # mirrors the NFL rules' stacking -- see nfl_moderate_favorite
 
   - id: cfb_fourth_quarter_reentry
+    summary: "After a favorite-fade bet on the same game: bet again in the 4th quarter if the favorite is +110 to +165."   # plain-English version for the results page
     sport: cfb
     description: >
       Same rule as nfl_fourth_quarter_reentry, applied to college football.
@@ -233,6 +242,7 @@ rules:
     max_bets_per_game: 3
 
   - id: cfb_moderate_favorite
+    summary: "Favorite opened at -150 or stronger. Bet it once when its live odds are +100 to +150."   # plain-English version for the results page
     sport: cfb
     description: >
       Same rule as nfl_moderate_favorite, applied to college football.
@@ -249,6 +259,7 @@ rules:
     max_bets_per_game: 3
 
   - id: nhl_favorite_trails_by_one
+    summary: "Favorite opened at -170 or stronger. Bet it when the underdog leads 1-0 or 2-1, unless it's the last 6 minutes of the 3rd period or overtime."   # plain-English version for the results page
     sport: nhl
     description: >
       Pregame favorite at -170 or steeper. Wager on the favorite when the
@@ -266,6 +277,7 @@ rules:
     max_bets_per_game: 1
 
   - id: mlb_favorite_fade
+    summary: "Favorite opened at -200 or stronger. From the 7th inning on, bet it when its live odds are +100 to +200."   # plain-English version for the results page
     sport: mlb
     description: >
       Pregame favorite at -200 or steeper. Wager when live price is between
