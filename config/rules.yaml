@@ -25,7 +25,8 @@
 #      faded from -250 up toward -115 or further, including into positive
 #      territory) -- "below" read as "the favorite is less heavily favored",
 #      not as a smaller signed number.
-#   6. Tennis "moves below +100" = the -300 favorite has faded to roughly a
+#   6. Tennis (favorite threshold changed from -300 to -200, 2026-10-11)
+#      "moves below +100" = the favorite has faded to roughly a
 #      coin flip: live odds between -110 and +100 inclusive (your call,
 #      2026-10-07). Not a bet while it's still clearly favored (e.g. -200),
 #      and not once it's become a real underdog (e.g. +120).
@@ -69,10 +70,17 @@
 # both are wired up as config knobs so you can turn them on later without
 # code changes.
 #
-# MULTI-BET: every rule below allows exactly one wager per game, EXCEPT
-# nfl_fourth_quarter_reentry, which is explicitly a second wager on a game
-# that already had nfl_favorite_fade fire. That is the only sanctioned
-# multi-bet in the whole rule set.
+#  10. Soccer first half (soccer_first_half_favorite), added 2026-10-11:
+#      favorite at -300 or steeper on the full-match line; while the first
+#      half is under way and it's 0-0, bet the favorite to win the FIRST
+#      HALF on Kalshi when its first-half odds are -130 to +120 ("-130 or
+#      greater, don't bet past +120"). Allowed alongside
+#      soccer_heavy_favorite on the same match (your call): up to two $15
+#      bets on a -300 favorite.
+#
+# MULTI-BET: each rule bets at most once per game. Rules that may stack on
+# the same game: the three NFL rules (and CFB's), and soccer's first-half
+# rule with soccer_heavy_favorite.
 
 stake_usd: 15
 
@@ -90,7 +98,7 @@ rules:
       max_odds: 200            # inclusive upper bound
     invalidate_if:
       odds_beyond: 200         # do not place once live odds have exceeded +200
-    max_bets_per_game: 1
+    max_bets_per_game: 2       # so soccer_first_half_favorite on the same match doesn't block it
 
   - id: soccer_moderate_favorite
     sport: soccer
@@ -110,14 +118,33 @@ rules:
       trailing_by_goal_after_halftime: true
     max_bets_per_game: 1
 
-  - id: tennis_heavy_favorite
-    sport: tennis
+  - id: soccer_first_half_favorite
+    sport: soccer
+    market: first_half         # first-half odds, and a bet on the first-half result
     description: >
-      Pregame favorite at -300 or steeper. Wager when the favorite's live
-      price has faded to near even: -110 through +100.
+      Pregame (full-match) favorite at -300 or steeper. While it's still
+      0-0 in the first half, bet the favorite to win the FIRST HALF once
+      its first-half odds have drifted to -130 or looser -- but not past
+      +120.
     pregame:
       side: favorite
       max_odds: -300
+    trigger:
+      min_odds: -130             # -130 or looser...
+      max_odds: 120              # ...up to +120, never past it
+      quarter: 1                 # first half only (not at halftime)
+      scores: [[0, 0]]           # still 0-0
+    invalidate_if: {}
+    max_bets_per_game: 2       # can bet alongside soccer_heavy_favorite on the same match
+
+  - id: tennis_heavy_favorite
+    sport: tennis
+    description: >
+      Pregame favorite at -200 or steeper. Wager when the favorite's live
+      price has faded to near even: -110 through +100.
+    pregame:
+      side: favorite
+      max_odds: -200
     trigger:
       min_odds: -110            # no shorter than -110...
       max_odds: 100             # ...and no longer than +100

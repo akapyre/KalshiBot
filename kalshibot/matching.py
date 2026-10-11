@@ -71,6 +71,11 @@ SERIES_DISCOVERY: dict[Sport, tuple[list[str], list[str]]] = {
 #   KXBBSERIEA2GAME               Italian basketball Serie A2
 #   KXLPLMATCH, KXCPLMATCH        esports / cricket "Premier League" series
 SERIES_DISCOVERY_SKIP = re.compile(r"WGAME$|^KXBB|MATCH$")
+
+# First-half result series ("1H", "first half") -- kept apart from the
+# full-game series, and without first-half spreads, totals and the like.
+FIRST_HALF_RE = re.compile(r"1h|first half|1st half")
+FIRST_HALF_SKIP_RE = re.compile(r"spread|total|goal|both teams|corner|score|btts")
 DISCOVERY_REFRESH_S = 6 * 3600
 
 # Sports whose Kalshi event date may be a day off from the game date
@@ -150,38 +155,48 @@ class ResolvedMarket:
 class MarketMatcher:
     def __init__(self, kalshi_client: KalshiClient):
         self._kalshi = kalshi_client
-        self._discovered: dict[str, tuple[float, list[str]]] = {}
+        self._discovered: dict[tuple[str, str], tuple[float, list[str]]] = {}
 
-    def series_for(self, sport: Sport) -> list[str]:
-        """Known series for the sport plus any found by name in Kalshi's
-        series list (refreshed every few hours)."""
-        known = list(SERIES_BY_SPORT.get(sport, []))
+    def series_for(self, sport: Sport, market: str = "game") -> list[str]:
+        """Kalshi series holding this sport's markets of this kind: known
+        ones plus any found by name in Kalshi's series list (refreshed
+        every few hours). market="first_half" finds first-half result
+        series only; "game" never returns a first-half series."""
+        known = list(SERIES_BY_SPORT.get(sport, [])) if market == "game" else []
         if sport not in SERIES_DISCOVERY:
             return known
-        cached = self._discovered.get(sport)
+        key = (sport, market)
+        cached = self._discovered.get(key)
         if cached is None or time.time() - cached[0] > DISCOVERY_REFRESH_S:
             include, exclude = SERIES_DISCOVERY[sport]
             found: list[str] = []
             try:
                 for s in self._kalshi.list_series(category="Sports").get("series", []):
                     ticker = str(s.get("ticker") or "")
-                    text = _normalize(ticker + " " + str(s.get("title") or ""))
-                    if (ticker.upper().endswith("GAME") and not SERIES_DISCOVERY_SKIP.search(ticker.upper())
-                            and any(k in text for k in include) and not any(k in text for k in exclude)):
+                    raw = (ticker + " " + str(s.get("title") or "")).lower()
+                    text = _normalize(raw)
+                    if (SERIES_DISCOVERY_SKIP.search(ticker.upper())
+                            or not any(k in text for k in include) or any(k in text for k in exclude)):
+                        continue
+                    first_half = bool(FIRST_HALF_RE.search(raw))
+                    if market == "first_half":
+                        if first_half and not FIRST_HALF_SKIP_RE.search(raw):
+                            found.append(ticker)
+                    elif ticker.upper().endswith("GAME") and not first_half:
                         found.append(ticker)
-                logger.info("Kalshi %s series found: %s", sport, ", ".join(sorted(found)) or "none")
+                logger.info("Kalshi %s %s series found: %s", sport, market, ", ".join(sorted(found)) or "none")
             except Exception as e:
                 logger.warning("Couldn't list Kalshi series for %s: %s", sport, e)
                 found = cached[1] if cached else []
             cached = (time.time(), found)
-            self._discovered[sport] = cached
+            self._discovered[key] = cached
         return known + [t for t in cached[1] if t not in known]
 
-    def candidate_events(self, snapshot: GameSnapshot) -> dict[str, dict[str, dict[str, Any]]]:
+    def candidate_events(self, snapshot: GameSnapshot, market: str = "game") -> dict[str, dict[str, dict[str, Any]]]:
         """Open events between these two teams, on any date:
         {event_ticker: {"home": market, "away": market}}."""
         by_event: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
-        for series_ticker in self.series_for(snapshot.sport):
+        for series_ticker in self.series_for(snapshot.sport, market):
             try:
                 markets = self._kalshi.iter_markets(series_ticker=series_ticker, status="open")
             except Exception as e:
@@ -202,13 +217,13 @@ class MarketMatcher:
             if len(sides.get("home", [])) == 1 and len(sides.get("away", [])) == 1
         }
 
-    def resolve(self, snapshot: GameSnapshot) -> ResolvedMarket | None:
-        game = f"{snapshot.away_team} @ {snapshot.home_team}"
+    def resolve(self, snapshot: GameSnapshot, market: str = "game") -> ResolvedMarket | None:
+        game = f"{snapshot.away_team} @ {snapshot.home_team}" + (" (first half)" if market == "first_half" else "")
         if snapshot.sport not in SERIES_BY_SPORT:
             logger.warning("No Kalshi series mapped for sport=%s", snapshot.sport)
             return None
 
-        events = self.candidate_events(snapshot)
+        events = self.candidate_events(snapshot, market)
         if not events:
             logger.warning("No Kalshi market matched %s -- skipping, will not guess", game)
             return None

@@ -30,6 +30,8 @@ class GameSnapshot:
     home_score: int | None = None
     away_score: int | None = None
     past_halftime: bool | None = None
+    # favorite_team's current FIRST-HALF moneyline (soccer); None if not quoted
+    first_half_favorite_odds: int | None = None
 
 
 class OddsProvider(Protocol):

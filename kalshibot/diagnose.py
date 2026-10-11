@@ -2,7 +2,7 @@
 
 Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose kalshi
-       python -m kalshibot.diagnose markets nhl   (or any sport above)
+       python -m kalshibot.diagnose markets nhl   (or any sport above; soccer-1h = first-half markets)
        python -m kalshibot.diagnose order         (test order that won't fill)
        python -m kalshibot.diagnose account       (orders/fills/positions on this key)
        python -m kalshibot.diagnose leagues       (every SportsGameOdds league on your plan)
@@ -81,11 +81,13 @@ SERIES_KEYWORDS = {
 MARKET_FIELDS = ("ticker", "event_ticker", "title", "subtitle", "yes_sub_title", "no_sub_title", "close_time")
 
 
-def check_markets(sport: str) -> None:
+def check_markets(sport: str, market: str = "game") -> None:
     kalshi = build_kalshi_client(demo=False)
     matcher = MarketMatcher(kalshi)
     markets = []
-    for series in matcher.series_for(sport):
+    if market == "first_half":
+        print("First-half markets only.")
+    for series in matcher.series_for(sport, market):
         found = kalshi.iter_markets(series_ticker=series, status="open")
         print(f"Kalshi series {series}: {len(found)} open markets")
         markets.extend(found)
@@ -119,8 +121,8 @@ def check_markets(sport: str) -> None:
         if snap is None or snap.is_final:
             continue
         game = f"{snap.away_team} @ {snap.home_team} on {game_date(snap)} (fav {snap.favorite_team})"
-        events = matcher.candidate_events(snap)
-        resolved = matcher.resolve(snap)
+        events = matcher.candidate_events(snap, market)
+        resolved = matcher.resolve(snap, market)
         choice = f"BUY YES {resolved.ticker}" if resolved else "SKIP"
         found = ", ".join(f"{e} [{event_date(e)}]" for e in sorted(events)) or "none"
         print(f"  {game}\n      Kalshi events for these teams: {found}\n      -> {choice}")
@@ -297,6 +299,9 @@ def main() -> None:
         return
     if sport == "markets":
         target = sys.argv[2] if len(sys.argv) > 2 else "nhl"
+        if target == "soccer-1h":
+            check_markets("soccer", "first_half")
+            return
         if target not in SERIES_BY_SPORT:
             print(f"Unknown sport {target!r}; pick one of: {', '.join(SERIES_BY_SPORT)}")
             return
@@ -350,6 +355,8 @@ def main() -> None:
                 f" live {snap.live_favorite_odds:+d} | score {snap.away_score}-{snap.home_score}"
                 f" period {snap.period} clock {snap.seconds_remaining}s"
             )
+            if snap.first_half_favorite_odds is not None:
+                line += f" | 1st-half fav odds {snap.first_half_favorite_odds:+d}"
         print(line)
 
     print("\nSummary:")

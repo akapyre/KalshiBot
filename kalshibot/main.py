@@ -179,7 +179,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                         decision.team, snapshot.live_favorite_odds, snapshot.pregame_favorite_odds,
                     )
                     try:
-                        resolved = matcher.resolve(snapshot)
+                        resolved = matcher.resolve(snapshot, decision.market)
                         if resolved is None:
                             continue  # already logged by matcher; never guess a ticker
 

@@ -92,10 +92,11 @@ def test_tennis_heavy_favorite_bets_near_even(engine, live, fires):
     assert [d.rule_id for d in eng.evaluate(snap)] == (["tennis_heavy_favorite"] if fires else [])
 
 
-def test_tennis_needs_a_minus_300_favorite(engine):
+def test_tennis_needs_a_minus_200_favorite(engine):
     eng, _ = engine
-    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-250, live_favorite_odds=-105)
-    assert eng.evaluate(snap) == []
+    assert eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-199, live_favorite_odds=-105)) == []
+    assert [d.rule_id for d in eng.evaluate(
+        make_snapshot(sport="tennis", pregame_favorite_odds=-200, live_favorite_odds=-105))] == ["tennis_heavy_favorite"]
 
 
 def test_nfl_favorite_fade_triggers(engine):
@@ -318,6 +319,9 @@ def test_nhl_last_six_minutes_blocked(engine, period, seconds, fires):
         ("nfl_favorite_fade", 60, False),       # -150
         ("nfl_favorite_fade", 10, True),        # no ceiling on this rule
         ("nhl_favorite_trails_by_one", 90, True),  # score-based rule, no odds band
+        ("soccer_first_half_favorite", 55, True),   # -122, inside -130..+120
+        ("soccer_first_half_favorite", 60, False),  # -150, not drifted enough
+        ("soccer_first_half_favorite", 44, False),  # +127, past +120
         ("tennis_heavy_favorite", 52, True),    # -108, near even
         ("tennis_heavy_favorite", 45, False),   # +122, past +100
         ("tennis_heavy_favorite", 60, False),   # -150, still clearly favored
@@ -333,5 +337,42 @@ def test_watched_rules_lists_rules_whose_pregame_condition_is_met(engine):
     eng, _ = engine
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-400, live_favorite_odds=-250)) \
         == ["tennis_heavy_favorite"]
-    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-200)) == []
+    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-150)) == []
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=None)) == []
+
+
+
+def first_half(**kw):
+    base = dict(sport="soccer", pregame_favorite_odds=-320, live_favorite_odds=-180,
+                first_half_favorite_odds=-120, period=1, home_score=0, away_score=0, past_halftime=False)
+    base.update(kw)
+    return make_snapshot(**base)
+
+
+@pytest.mark.parametrize("kw, fires", [
+    ({}, True),                                          # 0-0, 1H, -120 first-half odds
+    ({"first_half_favorite_odds": -130}, True),          # edge of the band
+    ({"first_half_favorite_odds": 120}, True),           # other edge
+    ({"first_half_favorite_odds": -140}, False),         # not drifted far enough
+    ({"first_half_favorite_odds": 125}, False),          # past +120
+    ({"first_half_favorite_odds": None}, False),         # no first-half line quoted
+    ({"home_score": 1}, False),                          # no longer 0-0
+    ({"period": 2, "past_halftime": True}, False),       # second half
+    ({"period": None}, False),                           # halftime break / unknown
+    ({"pregame_favorite_odds": -290}, False),            # favorite not -300 or steeper
+])
+def test_soccer_first_half_rule(engine, kw, fires):
+    eng, _ = engine
+    decisions = [d for d in eng.evaluate(first_half(**kw)) if d.rule_id == "soccer_first_half_favorite"]
+    assert bool(decisions) == fires
+    if fires:
+        assert decisions[0].market == "first_half"
+        assert decisions[0].live_odds == first_half(**kw).first_half_favorite_odds
+
+
+def test_first_half_bet_does_not_block_the_full_match_rule(engine):
+    eng, store = engine
+    store.record("g1", "soccer_first_half_favorite")
+    # later the full-match line drifts to +150 -> soccer_heavy_favorite still bets
+    snap = first_half(period=2, past_halftime=True, home_score=0, away_score=1, live_favorite_odds=150)
+    assert [d.rule_id for d in eng.evaluate(snap)] == ["soccer_heavy_favorite"]

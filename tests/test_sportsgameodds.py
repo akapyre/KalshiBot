@@ -196,3 +196,22 @@ def test_soccer_leagues_are_split_and_one_failing_batch_is_skipped(monkeypatch):
     assert all(len(a.split(",")) <= sgo.LEAGUES_PER_REQUEST for a in asked)
     assert len(events) == len(asked) - 2          # the MLS batch failed twice (one retry)
     assert not any("MLS" in e for e in events)
+
+
+
+def test_soccer_first_half_odds_follow_the_pregame_favorite(provider):
+    ev = event(+120, -150, started=True, live=True, close=(-320, +800))
+    ev["odds"].update({
+        "h1": {"statID": "points", "periodID": "1h", "betTypeID": "ml3way", "sideID": "home", "bookOdds": "-115"},
+        "d1": {"statID": "points", "periodID": "1h", "betTypeID": "ml3way", "sideID": "draw", "bookOdds": "+120"},
+        "a1": {"statID": "points", "periodID": "1h", "betTypeID": "ml3way", "sideID": "away", "bookOdds": "+600"},
+    })
+    provider.fetch_events = lambda sport: [ev]
+    [snap] = provider.list_live_games("soccer")
+    assert (snap.favorite_team, snap.first_half_favorite_odds) == ("Chiefs", -115)
+
+
+def test_no_first_half_line_outside_soccer(provider):
+    provider.fetch_events = lambda sport: [event(-150, +130, started=True, live=True)]
+    [snap] = provider.list_live_games("nfl")
+    assert snap.first_half_favorite_odds is None

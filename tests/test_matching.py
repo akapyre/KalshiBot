@@ -198,3 +198,27 @@ def test_tennis_surname_alone_does_not_match_another_player():
     markets = game_markets("KXATPMATCH-26OCT07ZHEWU", ("ZHE", "Michael Zheng"), ("WU", "Yibing Wu"))
     game = snap("Yibing Wu", "Qinwen Zheng", "Yibing Wu", start="2026-10-07T12:00:00Z", sport="tennis")
     assert resolve(markets, game) is None
+
+
+FIRST_HALF_SERIES = EPL_SERIES + [
+    {"ticker": "KXEPL1HGAME", "title": "EPL 1st Half Winner"},
+    {"ticker": "KXEPL1HTOTAL", "title": "EPL First Half Total Goals"},
+    {"ticker": "KXSERIEA1HWGAME", "title": "Serie A Women 1H"},
+]
+
+
+def test_first_half_series_are_kept_apart_from_full_game_series():
+    matcher = MarketMatcher(FakeKalshi([], series=FIRST_HALF_SERIES))
+    assert matcher.series_for("soccer", "first_half") == ["KXEPL1HGAME"]
+    assert "KXEPL1HGAME" not in matcher.series_for("soccer")
+
+
+def test_first_half_bet_uses_the_first_half_market():
+    markets = (
+        game_markets("KXEPLGAME-26OCT18ARSCHE", ("ARS", "Arsenal"), ("TIE", "Tie"), ("CHE", "Chelsea"))
+        + game_markets("KXEPL1HGAME-26OCT18ARSCHE", ("ARS", "Arsenal"), ("TIE", "Tie"), ("CHE", "Chelsea"))
+    )
+    game = snap("Arsenal", "Chelsea", "Arsenal", start="2026-10-18T14:00:00Z", sport="soccer")
+    matcher = MarketMatcher(FakeKalshi(markets, series=FIRST_HALF_SERIES))
+    assert matcher.resolve(game, "first_half").ticker == "KXEPL1HGAME-26OCT18ARSCHE-ARS"
+    assert matcher.resolve(game).ticker == "KXEPLGAME-26OCT18ARSCHE-ARS"

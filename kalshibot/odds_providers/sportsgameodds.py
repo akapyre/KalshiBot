@@ -253,6 +253,7 @@ class SportsGameOddsProvider:
             period = _parse_period_number(current_period)
             started_periods = status.get("periods", {}).get("started", [])
             past_halftime = "2h" in started_periods if sport == "soccer" else None
+            first_half = _first_half_moneyline(event.get("odds", {})) if sport == "soccer" else {}
 
             return GameSnapshot(
                 game_id=game_id,
@@ -270,6 +271,7 @@ class SportsGameOddsProvider:
                 home_score=home.get("score"),
                 away_score=away.get("score"),
                 past_halftime=past_halftime,
+                first_half_favorite_odds=first_half.get(fav_side),
             )
         except (KeyError, ValueError, TypeError):
             logger.warning(
@@ -303,6 +305,23 @@ def _game_moneyline(sport: str, odds: dict[str, Any]) -> tuple[int | None, int |
         if len(current) == 2:
             return current["home"], current["away"], close
     return None, None, {}
+
+
+def _first_half_moneyline(odds: dict[str, Any]) -> dict[str, int]:
+    """{"home": price, "away": price} for the first-half result line
+    (periodID "1h"; 3-way preferred, as soccer books quote it)."""
+    for bet_type in ("ml3way", "ml"):
+        prices: dict[str, int] = {}
+        for odd in odds.values():
+            side = odd.get("sideID")
+            if (odd.get("statID") == "points" and odd.get("periodID") == "1h"
+                    and odd.get("betTypeID") == bet_type and side in ("home", "away")):
+                price = odd.get("bookOdds") or odd.get("fairOdds")
+                if price is not None:
+                    prices[side] = int(price)
+        if len(prices) == 2:
+            return prices
+    return {}
 
 
 def _has_started(status: dict[str, Any]) -> bool:

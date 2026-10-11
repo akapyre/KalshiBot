@@ -30,13 +30,16 @@ class Rule:
     late_minutes: float | None       # ...and how many minutes left counts as "too late"
     requires_prior_rule: str | None
     max_bets_per_game: int
+    # Which market the rule's odds and bet are on: "game" (the full-game
+    # result, default) or "first_half" (soccer first-half result).
+    market: str = "game"
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Rule":
         pregame = d.get("pregame", {})
         trigger = d.get("trigger", {})
         invalidate = d.get("invalidate_if", {}) or {}
-        scores = trigger.get("favorite_trailing_scores")
+        scores = trigger.get("favorite_trailing_scores") or trigger.get("scores")
         late = invalidate.get("late_in_game") or {}
         return cls(
             id=d["id"],
@@ -55,6 +58,7 @@ class Rule:
             late_minutes=late.get("minutes_remaining"),
             requires_prior_rule=d.get("requires_prior_rule"),
             max_bets_per_game=int(d.get("max_bets_per_game", 1)),
+            market=str(d.get("market", "game")),
         )
 
 
@@ -66,6 +70,7 @@ class BetDecision:
     team: str
     live_odds: int
     stake_usd: float
+    market: str = "game"   # see Rule.market
 
 
 def load_rules(path: str | Path = "config/rules.yaml") -> tuple[list[Rule], float]:
@@ -82,8 +87,17 @@ def _pregame_ok(rule: Rule, pregame_odds: int) -> bool:
     return True
 
 
+def _rule_odds(rule: Rule, snapshot: GameSnapshot) -> int | None:
+    """The favorite's current odds on the market this rule bets."""
+    if rule.market == "first_half":
+        return snapshot.first_half_favorite_odds
+    return snapshot.live_favorite_odds
+
+
 def _trigger_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
-    odds = snapshot.live_favorite_odds
+    odds = _rule_odds(rule, snapshot)
+    if odds is None:
+        return False
     if rule.trigger_min is not None:
         if rule.trigger_exclusive_min:
             if not odds > rule.trigger_min:
@@ -130,7 +144,8 @@ def _in_late_game(rule: Rule, snapshot: GameSnapshot) -> bool:
 
 
 def _invalidated(rule: Rule, snapshot: GameSnapshot) -> bool:
-    if rule.odds_beyond_invalidate is not None and snapshot.live_favorite_odds > rule.odds_beyond_invalidate:
+    odds = _rule_odds(rule, snapshot)
+    if rule.odds_beyond_invalidate is not None and odds is not None and odds > rule.odds_beyond_invalidate:
         return True
     if rule.trailing_goal_invalidate and _favorite_trailing_by_goal_after_half(snapshot):
         return True
@@ -214,8 +229,9 @@ class RulesEngine:
                     game_id=snapshot.game_id,
                     sport=snapshot.sport,
                     team=snapshot.favorite_team,
-                    live_odds=snapshot.live_favorite_odds,
+                    live_odds=_rule_odds(rule, snapshot),
                     stake_usd=self._stake_usd,
+                    market=rule.market,
                 )
             )
         return decisions
