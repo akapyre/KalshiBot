@@ -165,5 +165,34 @@ def test_fetch_follows_next_cursor(monkeypatch):
 
     monkeypatch.setattr(sgo.requests, "get", lambda url, headers, params, timeout: seen.append(params.get("cursor")) or Resp(next(pages)))
     p = sgo.SportsGameOddsProvider(api_key="x", pregame_store=None)
-    assert p.fetch_events("soccer") == [1, 2, 3]
+    assert p.fetch_events("nfl") == [1, 2, 3]
     assert seen == [None, "c"]
+
+
+def test_soccer_leagues_are_split_and_one_failing_batch_is_skipped(monkeypatch):
+    from kalshibot.odds_providers import sportsgameodds as sgo
+    monkeypatch.setattr(sgo.time, "sleep", lambda s: None)
+    asked = []
+
+    class Resp:
+        def __init__(self, leagues):
+            self.leagues = leagues
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": [self.leagues]}
+
+    def get(url, headers, params, timeout):
+        asked.append(params["leagueID"])
+        if "MLS" in params["leagueID"]:
+            raise sgo.requests.Timeout("slow")
+        return Resp(params["leagueID"])
+
+    monkeypatch.setattr(sgo.requests, "get", get)
+    p = sgo.SportsGameOddsProvider(api_key="x", pregame_store=None)
+    events = p.fetch_events("soccer")
+    assert all(len(a.split(",")) <= sgo.LEAGUES_PER_REQUEST for a in asked)
+    assert len(events) == len(asked) - 2          # the MLS batch failed twice (one retry)
+    assert not any("MLS" in e for e in events)

@@ -57,6 +57,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -77,6 +78,10 @@ MONEYLINES: dict[str, list[tuple[str, str]]] = {
     "soccer": [("ml3way", "reg"), ("ml", "game"), ("ml", "reg")],
 }
 DEFAULT_MONEYLINES = [("ml", "game")]
+
+# Leagues per /events request. All 13 soccer leagues in one request timed
+# out (2026-10-11); small batches keep each response quick.
+LEAGUES_PER_REQUEST = 3
 
 LEAGUE_IDS: dict[Sport, list[str]] = {
     "nfl": ["NFL"],
@@ -122,9 +127,26 @@ class SportsGameOddsProvider:
         starts_before = (now + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         events: list[dict[str, Any]] = []
+        failures = 0
+        chunks = [league_ids[i:i + LEAGUES_PER_REQUEST] for i in range(0, len(league_ids), LEAGUES_PER_REQUEST)]
+        for n, chunk in enumerate(chunks):
+            if n:
+                time.sleep(1)  # don't burst the API with back-to-back requests
+            try:
+                events.extend(self._fetch_leagues(chunk, starts_after, starts_before))
+            except requests.RequestException as e:
+                # One slow or failing batch shouldn't cost the other leagues.
+                failures += 1
+                logger.warning("SportsGameOdds request for %s failed: %s", ",".join(chunk), e)
+        if failures == len(chunks):
+            raise requests.ConnectionError(f"every SportsGameOdds request for {sport} failed")
+        logger.debug("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
+        return events
+
+    def _fetch_leagues(self, league_ids: list[str], starts_after: str, starts_before: str) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
         cursor = None
-        # Follow nextCursor: a busy soccer weekend across many leagues can
-        # hold more than one page of matches.
+        # Follow nextCursor: a busy weekend can hold more than one page.
         for _ in range(5):
             params = {
                 "leagueID": ",".join(league_ids),
@@ -134,22 +156,31 @@ class SportsGameOddsProvider:
             }
             if cursor:
                 params["cursor"] = cursor
-            resp = requests.get(
-                f"{API_BASE}/events",
-                headers=self._headers(),
-                params=params,
-                # limit=100 responses (with full rosters and odds per event) are
-                # large enough that 10s read timeouts were happening regularly.
-                timeout=30,
-            )
-            resp.raise_for_status()
-            body = resp.json()
+            body = self._get_with_retry(params)
             events.extend(body.get("data", []))
             cursor = body.get("nextCursor")
             if not cursor:
                 break
-        logger.debug("%s: %d raw events returned for leagues %s", sport, len(events), league_ids)
         return events
+
+    def _get_with_retry(self, params: dict[str, Any]) -> dict[str, Any]:
+        for attempt in (1, 2):
+            try:
+                resp = requests.get(
+                    f"{API_BASE}/events",
+                    headers=self._headers(),
+                    params=params,
+                    # Responses carry full rosters and odds for every event, so
+                    # they are big; 30s still timed out for 13 soccer leagues.
+                    timeout=45,
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except (requests.Timeout, requests.ConnectionError):
+                if attempt == 2:
+                    raise
+                time.sleep(2)
+        raise AssertionError("unreachable")
 
     def list_live_games(self, sport: Sport) -> list[GameSnapshot]:
         snapshots = []

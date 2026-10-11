@@ -33,7 +33,9 @@ from .kalshi_client import KalshiClient
 from .ledger import BetLedger, record_line
 from .main import build_kalshi_client
 from .matching import SERIES_BY_SPORT, MarketMatcher, event_date, game_date
-from .odds_providers.sportsgameodds import API_BASE as SGO_API_BASE, LEAGUE_IDS, SportsGameOddsProvider
+from .odds_providers.sportsgameodds import (
+    API_BASE as SGO_API_BASE, DEFAULT_MONEYLINES, LEAGUE_IDS, MONEYLINES, SportsGameOddsProvider,
+)
 
 KALSHI_CANDIDATE_URLS = [
     "https://api.elections.kalshi.com/trade-api/v2",
@@ -329,9 +331,10 @@ def main() -> None:
         elif snap.is_live:
             verdict = "COUNTED AS LIVE"
             sample_live_status = sample_live_status or status
+            lines = MONEYLINES.get(sport, DEFAULT_MONEYLINES)
             sample_live_odds = sample_live_odds or {
                 k: v for k, v in event.get("odds", {}).items()
-                if v.get("statID") == "points" and v.get("periodID") == "game" and v.get("betTypeID") == "ml"
+                if v.get("statID") == "points" and (v.get("betTypeID"), v.get("periodID")) in lines
             }
         elif snap.is_final:
             verdict = "finished"
