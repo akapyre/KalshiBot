@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -29,7 +31,7 @@ SPORTS: list[Sport] = ["soccer", "nfl", "mlb", "cfb", "nhl", "tennis"]
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",  # same as LOG_FORMAT
 )
 logger = logging.getLogger("kalshibot.main")
 
@@ -96,7 +98,21 @@ def _kalshi_error_code(body: str) -> str:
         return "error"
 
 
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def log_to_file(path: str = "logs/kalshibot.log") -> None:
+    """Keep the bot's log on disk as well as on screen, so a past game can
+    be looked up (e.g. `grep Andreeva logs/kalshibot.log`). Rotates at 5 MB,
+    keeping the last 10 files."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(path, maxBytes=5_000_000, backupCount=10, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logging.getLogger().addHandler(handler)
+
+
 def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
+    log_to_file()
     kalshi = build_kalshi_client(demo)
     odds_provider = SportsGameOddsProvider()
     matcher = MarketMatcher(kalshi)

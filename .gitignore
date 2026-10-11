@@ -6,3 +6,4 @@ state/
 *.pem
 venv/
 .venv/
+logs/
