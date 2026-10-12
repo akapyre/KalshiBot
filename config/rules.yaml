@@ -78,6 +78,12 @@
 #      soccer_heavy_favorite on the same match (your call): up to two $15
 #      bets on a -300 favorite.
 #
+#  11. Backtest changes (2026-10-12, Kalshi price history, ~400 days):
+#      NFL moderate favorite and 4th-quarter re-bet PAUSED (lost 28% / 21%);
+#      NFL fade only bets -115..-100. CFB moderate favorite PAUSED (no edge);
+#      CFB fade capped at +150 (bets past +150 lost almost every time).
+#      Paused rules have `enabled: false` -- flip it to true to resume.
+#
 # MULTI-BET: each rule bets at most once per game. Rules that may stack on
 # the same game: the three NFL rules (and CFB's), and soccer's first-half
 # rule with soccer_heavy_favorite.
@@ -156,7 +162,7 @@ rules:
     max_bets_per_game: 1
 
   - id: nfl_favorite_fade
-    summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 or longer."   # plain-English version for the results page
+    summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 through -100 (still a slight favorite)."   # plain-English version for the results page
     sport: nfl
     description: >
       Pregame favorite at -250 or steeper. First wager when live price has
@@ -166,10 +172,12 @@ rules:
       max_odds: -250
     trigger:
       min_odds: -115            # odds >= -115
+      max_odds: -100            # backtest 2026-10-12: buying past even lost; only -115..-100
     invalidate_if: {}
     max_bets_per_game: 3       # so it never blocks nfl_moderate_favorite or nfl_fourth_quarter_reentry
 
   - id: nfl_fourth_quarter_reentry
+    enabled: false             # paused 2026-10-12 after the backtest -- set to true to turn back on
     summary: "After a favorite-fade bet on the same game: bet again in the 4th quarter if the favorite is +110 to +165."   # plain-English version for the results page
     sport: nfl
     description: >
@@ -187,6 +195,7 @@ rules:
     max_bets_per_game: 3       # so it never blocks the other two NFL rules
 
   - id: nfl_moderate_favorite
+    enabled: false             # paused 2026-10-12 after the backtest -- set to true to turn back on
     summary: "Favorite opened at -150 or stronger. Bet it once when its live odds are +100 to +150."   # plain-English version for the results page
     sport: nfl
     description: >
@@ -209,7 +218,7 @@ rules:
     max_bets_per_game: 3
 
   - id: cfb_favorite_fade
-    summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 or longer."   # plain-English version for the results page
+    summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 through +150."   # plain-English version for the results page
     sport: cfb
     description: >
       Same rule as nfl_favorite_fade, applied to college football. Pregame
@@ -220,6 +229,7 @@ rules:
       max_odds: -250
     trigger:
       min_odds: -115
+      max_odds: 150              # backtest 2026-10-12: bets past +150 lost almost every time
     invalidate_if: {}
     max_bets_per_game: 3       # mirrors the NFL rules' stacking -- see nfl_moderate_favorite
 
@@ -242,6 +252,7 @@ rules:
     max_bets_per_game: 3
 
   - id: cfb_moderate_favorite
+    enabled: false             # paused 2026-10-12 after the backtest -- set to true to turn back on
     summary: "Favorite opened at -150 or stronger. Bet it once when its live odds are +100 to +150."   # plain-English version for the results page
     sport: cfb
     description: >

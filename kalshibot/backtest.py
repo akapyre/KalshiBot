@@ -323,7 +323,7 @@ def report(sport: str, rules: list[Rule], trades: list[Trade], games: int, match
             print(f"  {rule.id:34} skipped (score-based -- can't be replayed from prices)")
             continue
         mine = [t for t in trades if t.rule == rule.id]
-        print(summarize(mine, rule.id))
+        print(summarize(mine, rule.id + ("" if rule.enabled else " (paused)")))
         # Where in the price band the money was made or lost.
         for lo in range(0, 100, 10):
             bucket = [t for t in mine if lo <= t.price < lo + 10]

@@ -33,6 +33,8 @@ class Rule:
     # Which market the rule's odds and bet are on: "game" (the full-game
     # result, default) or "first_half" (soccer first-half result).
     market: str = "game"
+    # `enabled: false` in rules.yaml pauses a rule without deleting it.
+    enabled: bool = True
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Rule":
@@ -59,6 +61,7 @@ class Rule:
             requires_prior_rule=d.get("requires_prior_rule"),
             max_bets_per_game=int(d.get("max_bets_per_game", 1)),
             market=str(d.get("market", "game")),
+            enabled=bool(d.get("enabled", True)),
         )
 
 
@@ -200,12 +203,12 @@ class RulesEngine:
         if snapshot.pregame_favorite_odds is None:
             return []
         return [r.id for r in self._rules
-                if r.sport == snapshot.sport and _pregame_ok(r, snapshot.pregame_favorite_odds)]
+                if r.enabled and r.sport == snapshot.sport and _pregame_ok(r, snapshot.pregame_favorite_odds)]
 
     def evaluate(self, snapshot: GameSnapshot) -> list[BetDecision]:
         decisions: list[BetDecision] = []
         for rule in self._rules:
-            if rule.sport != snapshot.sport:
+            if not rule.enabled or rule.sport != snapshot.sport:
                 continue
             if snapshot.pregame_favorite_odds is None:
                 continue

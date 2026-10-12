@@ -1,3 +1,4 @@
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -31,6 +32,19 @@ def make_snapshot(**overrides):
     )
     base.update(overrides)
     return GameSnapshot(**base)
+
+
+@pytest.fixture
+def unpaused_engine(tmp_path):
+    """The rule set as it was before the 2026-10-12 backtest changes (every
+    rule on, no fade caps) -- keeps the stacking / prior-rule mechanics
+    tested while those rules are paused in the live config."""
+    rules, stake = load_rules(RULES_PATH)
+    rules = [dataclasses.replace(r, enabled=True,
+                                 trigger_max=None if r.id in ("nfl_favorite_fade", "cfb_favorite_fade") else r.trigger_max)
+             for r in rules]
+    store = BetStateStore(tmp_path / "bets.json")
+    return RulesEngine(rules, stake, store), store
 
 
 @pytest.fixture
@@ -106,8 +120,8 @@ def test_nfl_favorite_fade_triggers(engine):
     assert [d.rule_id for d in decisions] == ["nfl_favorite_fade"]
 
 
-def test_nfl_moderate_favorite_triggers_for_lighter_pregame_favorite(engine):
-    eng, _ = engine
+def test_nfl_moderate_favorite_triggers_for_lighter_pregame_favorite(unpaused_engine):
+    eng, _ = unpaused_engine
     # This is the exact scenario that surfaced the gap: a -220 pregame
     # favorite doesn't meet nfl_favorite_fade's -250-or-steeper bar.
     snap = make_snapshot(sport="nfl", pregame_favorite_odds=-220, live_favorite_odds=125)
@@ -121,8 +135,8 @@ def test_nfl_moderate_favorite_skips_out_of_band(engine):
     assert eng.evaluate(snap) == []
 
 
-def test_nfl_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
-    eng, store = engine
+def test_nfl_moderate_favorite_deliberately_overlaps_steep_favorite(unpaused_engine):
+    eng, store = unpaused_engine
     # Per an explicit user call: a steep (-250+) favorite that drifts into
     # the +100-150 band fires BOTH NFL rules for the same game -- two
     # separate wagers, on purpose. Confirm both fire in the same cycle...
@@ -137,8 +151,8 @@ def test_nfl_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
     assert [d.rule_id for d in decisions_next_cycle] == ["nfl_moderate_favorite"]
 
 
-def test_nfl_all_three_rules_can_fire_on_one_steep_favorite_game(engine):
-    eng, store = engine
+def test_nfl_all_three_rules_can_fire_on_one_steep_favorite_game(unpaused_engine):
+    eng, store = unpaused_engine
     # Confirmed intentional: a steep favorite can rack up all three NFL
     # wagers across a game -- fade + moderate early, reentry in the 4th.
     store.record("g1", "nfl_favorite_fade")
@@ -150,8 +164,8 @@ def test_nfl_all_three_rules_can_fire_on_one_steep_favorite_game(engine):
     assert [d.rule_id for d in decisions] == ["nfl_fourth_quarter_reentry"]
 
 
-def test_nfl_fourth_quarter_reentry_requires_prior_fire(engine):
-    eng, store = engine
+def test_nfl_fourth_quarter_reentry_requires_prior_fire(unpaused_engine):
+    eng, store = unpaused_engine
     # live=160 is deliberately outside nfl_moderate_favorite's 100-150 band,
     # so this isolates the reentry-requires-prior-fire behavior without
     # incidentally also triggering the (separately tested) NFL rule overlap.
@@ -220,8 +234,8 @@ def test_cfb_favorite_fade_triggers(engine):
     assert [d.rule_id for d in decisions] == ["cfb_favorite_fade"]
 
 
-def test_cfb_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
-    eng, store = engine
+def test_cfb_moderate_favorite_deliberately_overlaps_steep_favorite(unpaused_engine):
+    eng, store = unpaused_engine
     # Mirrors the NFL overlap behavior: a steep CFB favorite can fire both
     # cfb_favorite_fade and cfb_moderate_favorite for the same game.
     snap = make_snapshot(sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=125)
@@ -229,8 +243,8 @@ def test_cfb_moderate_favorite_deliberately_overlaps_steep_favorite(engine):
     assert {d.rule_id for d in decisions} == {"cfb_favorite_fade", "cfb_moderate_favorite"}
 
 
-def test_cfb_fourth_quarter_reentry_requires_prior_fire(engine):
-    eng, store = engine
+def test_cfb_fourth_quarter_reentry_requires_prior_fire(unpaused_engine):
+    eng, store = unpaused_engine
     snap_q4 = make_snapshot(
         sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=160, period=4
     )
@@ -317,7 +331,10 @@ def test_nhl_last_six_minutes_blocked(engine, period, seconds, fires):
         ("nfl_moderate_favorite", 40, True),    # +150, the real Detroit fill
         ("nfl_favorite_fade", 55, True),        # -122 vs -115 entry (53.5c + 2c)
         ("nfl_favorite_fade", 60, False),       # -150
-        ("nfl_favorite_fade", 10, True),        # no ceiling on this rule
+        ("nfl_favorite_fade", 10, False),       # capped at -100 since the backtest
+        ("nfl_favorite_fade", 52, True),        # -108, inside -115..-100
+        ("cfb_favorite_fade", 41, True),        # +144, inside -115..+150
+        ("cfb_favorite_fade", 30, False),       # +233, past the +150 cap
         ("nhl_favorite_trails_by_one", 90, True),  # score-based rule, no odds band
         ("soccer_first_half_favorite", 55, True),   # -122, inside -130..+120
         ("soccer_first_half_favorite", 60, False),  # -150, not drifted enough
@@ -376,3 +393,37 @@ def test_first_half_bet_does_not_block_the_full_match_rule(engine):
     # later the full-match line drifts to +150 -> soccer_heavy_favorite still bets
     snap = first_half(period=2, past_halftime=True, home_score=0, away_score=1, live_favorite_odds=150)
     assert [d.rule_id for d in eng.evaluate(snap)] == ["soccer_heavy_favorite"]
+
+
+
+def test_backtest_changes_in_the_live_rules(engine):
+    eng, store = engine
+    nfl = dict(sport="nfl", pregame_favorite_odds=-260)
+    # paused: NFL moderate favorite and 4th-quarter re-bet, CFB moderate favorite
+    assert eng.evaluate(make_snapshot(**nfl, live_favorite_odds=120)) == []
+    store.record("g1", "nfl_favorite_fade")
+    assert eng.evaluate(make_snapshot(**nfl, live_favorite_odds=130, period=4)) == []
+    assert [d.rule_id for d in eng.evaluate(make_snapshot(sport="cfb", pregame_favorite_odds=-160,
+                                                          live_favorite_odds=120))] == []
+
+
+def test_nfl_fade_only_between_minus_115_and_minus_100(engine):
+    eng, _ = engine
+    fires = lambda live: [d.rule_id for d in eng.evaluate(
+        make_snapshot(game_id=str(live), sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=live))]
+    assert fires(-108) == ["nfl_favorite_fade"]
+    assert fires(-100) == ["nfl_favorite_fade"]
+    assert fires(105) == [] and fires(-130) == []
+
+
+def test_cfb_fade_capped_at_plus_150(engine):
+    eng, _ = engine
+    fires = lambda live: [d.rule_id for d in eng.evaluate(
+        make_snapshot(game_id=str(live), sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=live))]
+    assert fires(140) == ["cfb_favorite_fade"]
+    assert fires(160) == []
+
+
+def test_paused_rules_are_not_watched(engine):
+    eng, _ = engine
+    assert "nfl_moderate_favorite" not in eng.watched_rules(make_snapshot(sport="nfl", pregame_favorite_odds=-160))
