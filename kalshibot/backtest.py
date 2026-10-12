@@ -2,6 +2,7 @@
 prices, to see how each rule would have done.
 
 Usage:  python -m kalshibot.backtest nfl            (last 60 days)
+        python -m kalshibot.backtest inspect        (raw prices behind the oldest bets)
         python -m kalshibot.backtest soccer --days 180
         python -m kalshibot.backtest all
 
@@ -93,10 +94,11 @@ class Trade:
     contracts: int
     cost: float
     pnl: float
+    ticker: str = ""
 
 
 def simulate_game(rules: list[Rule], sport: str, game: str, team: str, start: datetime,
-                  pregame: int, prices: list[tuple[int, int]], won: bool) -> list[Trade]:
+                  pregame: int, prices: list[tuple[int, int]], won: bool, ticker: str = "") -> list[Trade]:
     """prices: (unix seconds, YES ask in cents), oldest first. Returns the
     bets each rule would have placed on this game."""
     trades: list[Trade] = []
@@ -129,7 +131,7 @@ def simulate_game(rules: list[Rule], sport: str, game: str, team: str, start: da
             fee = kalshi_fee(contracts, ask)
             pnl = (contracts if won else 0) - cost - fee
             trades.append(Trade(rule.id, sport, game, team, start.isoformat(), pregame, round(minutes),
-                                ask, won, contracts, round(cost, 2), round(pnl, 2)))
+                                ask, won, contracts, round(cost, 2), round(pnl, 2), ticker))
     return trades
 
 
@@ -311,18 +313,57 @@ def run(sport: str, days: int) -> list[Trade]:
         start = datetime.fromisoformat(g.start_time_utc.replace("Z", "+00:00"))
         prices = price_path(kalshi, resolved.ticker, start, GAME_LENGTH_MIN.get(sport, 240))
         trades += simulate_game(rules, sport, f"{g.away_team} @ {g.home_team}", g.favorite_team,
-                                start, g.pregame_favorite_odds, prices, result == "yes")
+                                start, g.pregame_favorite_odds, prices, result == "yes", resolved.ticker)
         time.sleep(0.05)
     print()
     report(sport, rules, trades, len(games), matched)
     return trades
 
 
+def inspect(count: int = 4) -> None:
+    """Show the raw price data behind a few simulated bets from the oldest
+    games, to check the archived (pre-cutoff) prices make sense."""
+    path = Path("state/backtest_trades.csv")
+    if not path.exists():
+        print("Run a backtest first.")
+        return
+    rows = sorted(csv.DictReader(path.open()), key=lambda r: r["start"])
+    seen: set[str] = set()
+    for r in rows:
+        ticker = r.get("ticker", "")
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        if len(seen) > count:
+            break
+        start = datetime.fromisoformat(r["start"])
+        cache = CACHE / f"candles-{ticker}.json"
+        candles = json.loads(cache.read_text()) if cache.exists() else []
+        print(f"\n{r['game']} | bet {r['team']} ({r['rule']}) | pregame {r['pregame']} | "
+              f"start {start:%Y-%m-%d %H:%M} UTC | bought {r['price']}c at minute {r['minute']} | "
+              f"{'WON' if r['won'] == 'True' else 'lost'} | {ticker}")
+        if not candles:
+            print("  no cached candles")
+            continue
+        times = [c.get("end_period_ts") for c in candles if c.get("end_period_ts")]
+        rel = [(t - start.timestamp()) / 60 for t in times]
+        print(f"  {len(candles)} candles, from minute {min(rel):.0f} to {max(rel):.0f} relative to the start")
+        print(f"  first candle: {json.dumps(candles[0])[:600]}")
+        marks = []
+        for target in (-10, 0, 30, 60, 90, 120, 180):
+            c = min(candles, key=lambda c: abs((c.get("end_period_ts", 0) - start.timestamp()) / 60 - target))
+            marks.append(f"m{target}:{ask_cents(c)}")
+        print("  ask by minute: " + "  ".join(marks))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Replay your rules on past games")
-    parser.add_argument("sport", choices=SPORTS + ["all"])
+    parser.add_argument("sport", choices=SPORTS + ["all", "inspect"])
     parser.add_argument("--days", type=int, default=60, help="how far back (default 60)")
     args = parser.parse_args()
+    if args.sport == "inspect":
+        inspect()
+        return
     sports = SPORTS if args.sport == "all" else [args.sport]
     trades: list[Trade] = []
     for sport in sports:
