@@ -155,3 +155,15 @@ To put it online like a GitHub Pages site:
 
 The page is public: anyone with the link sees the bets and results (never
 keys or balances).
+
+## Keeping the computer awake
+
+A sleeping computer pauses the bot. While it runs, the bot asks Windows (or
+macOS) not to go to sleep on its own, and if it ever finds it was paused
+for more than 10 minutes it logs it and sends a phone notification.
+
+That doesn't cover closing a laptop lid. To keep a laptop running with the
+lid closed while plugged in:
+- Windows: Control Panel -> Power Options -> "Choose what closing the lid
+  does" -> When I close the lid, Plugged in: **Do nothing**.
+- Mac: keep the lid open (or use an external display, keyboard and power).

@@ -16,6 +16,7 @@ load_dotenv()
 
 from . import notify
 from .executor import Executor, american_odds, yes_ask_cents
+from .keepawake import keep_awake
 from .ledger import BetLedger, record_line
 from .publish import SitePublisher
 from .report import build_html, load_rule_texts
@@ -126,8 +127,14 @@ def log_to_file(path: str = "logs/kalshibot.log") -> None:
     logging.getLogger().addHandler(handler)
 
 
+# A cycle that ends this much later than planned means the computer was
+# asleep (or the bot was otherwise frozen) in between.
+SLEEP_GAP_S = 10 * 60
+
+
 def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     log_to_file()
+    keep_awake()
     kalshi = build_kalshi_client(demo)
     odds_provider = SportsGameOddsProvider()
     matcher = MarketMatcher(kalshi)
@@ -168,7 +175,15 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
         if notify.send(f"KalshiBot started ({mode})", record_line(ledger.summary()), tags=["robot"]):
             logger.info("Phone notifications on (ntfy topic set)")
 
+    next_cycle_due: float | None = None
     while True:
+        late_by = time.time() - next_cycle_due if next_cycle_due else 0
+        if late_by > SLEEP_GAP_S:
+            minutes = round(late_by / 60)
+            logger.warning("Bot was paused for about %d minutes (computer asleep?) -- games went unwatched", minutes)
+            notify.send("KalshiBot was paused", f"About {minutes} minutes with no checks -- "
+                        "the computer was probably asleep. It's running again now.",
+                        tags=["zzz"], priority=4)
         live_counts: dict[str, int] = {}
         live_rows: list[dict] = []
         ledger_before = _ledger_signature(ledger)
@@ -269,6 +284,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
         except Exception:
             logger.exception("Couldn't build the results page this cycle")
         logger.info("Poll cycle done: %s", live_counts or "no sports queried successfully")
+        next_cycle_due = time.time() + poll_interval_s
         time.sleep(poll_interval_s)
 
 
