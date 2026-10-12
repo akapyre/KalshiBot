@@ -7,10 +7,13 @@ Usage:  python -m kalshibot.backtest nfl            (last 60 days)
         python -m kalshibot.backtest all
 
 For every finished game in the window:
-  1. SportsGameOdds gives the start time and the closing (pregame) line,
-     so a rule's pregame condition is checked exactly as the live bot does.
-  2. The game's Kalshi "<favorite> wins" market is found the same way the
-     bot finds it, and its price history is fetched.
+  1. SportsGameOdds gives the finished games and their start times.
+  2. The game's two Kalshi "<team> wins" markets are found the same way
+     the bot finds them, and their price history is fetched. The favorite
+     and its pregame odds are the Kalshi prices AT KICKOFF. (SportsGameOdds'
+     "closing" line can't be used for old games: it ends up holding the
+     line from the end of the game, which names the winner -- an earlier
+     version of this backtest made that mistake and "won" 91%.)
   3. The price is sampled every 5 minutes (like the bot's polling) and the
      rule fires the first time Kalshi's price converts into its odds band.
   4. The market's result settles the $15 bet, fees included.
@@ -162,7 +165,7 @@ def finished_games(provider: SportsGameOddsProvider, sport: str, days: int) -> l
             if ev.get("type") != "match":
                 continue
             snap = provider._parse_event(sport, ev)
-            if snap is not None and snap.is_final and snap.pregame_favorite_odds is not None:
+            if snap is not None and snap.is_final:
                 snaps.append(snap)
         start = stop
         print(f"  odds history: {len(snaps)} finished {sport} games so far", end="\r", flush=True)
@@ -197,13 +200,6 @@ class SettledMarkets:
             self._by_series[series_ticker] = markets
         return self._by_series[series_ticker]
 
-    def market(self, ticker: str) -> dict[str, Any] | None:
-        for markets in self._by_series.values():
-            for m in markets:
-                if m.get("ticker") == ticker:
-                    return m
-        return None
-
 
 _warned_shape = False
 
@@ -230,7 +226,8 @@ def ask_cents(candle: dict[str, Any]) -> int | None:
     return None
 
 
-def price_path(kalshi, ticker: str, start: datetime, minutes: int) -> list[tuple[int, int]]:
+def candles_for(kalshi, ticker: str, start: datetime, minutes: int) -> list[dict[str, Any]]:
+    """Minute candles from 10 minutes before the start to the end of play."""
     a = int(start.timestamp()) - 600
     b = a + minutes * 60 + 600
 
@@ -246,7 +243,10 @@ def price_path(kalshi, ticker: str, start: datetime, minutes: int) -> list[tuple
                 candles = []
         return candles
 
-    candles = _cached(f"candles-{ticker}.json", fetch)
+    return _cached(f"candles-{ticker}.json", fetch)
+
+
+def asks(candles: list[dict[str, Any]]) -> list[tuple[int, int]]:
     out = []
     for c in candles:
         ask = ask_cents(c)
@@ -254,6 +254,29 @@ def price_path(kalshi, ticker: str, start: datetime, minutes: int) -> list[tuple
         if ask is not None and ts is not None:
             out.append((int(ts), ask))
     return sorted(out)
+
+
+def _cents(part: dict[str, Any] | None) -> float | None:
+    v = (part or {}).get("close_dollars", (part or {}).get("close"))
+    try:
+        num = float(v)
+    except (TypeError, ValueError):
+        return None
+    return num * 100 if (isinstance(v, str) or num <= 1) else num
+
+
+def kickoff_cents(candles: list[dict[str, Any]], start: datetime) -> int | None:
+    """The market's price at the start: bid/ask midpoint of the candle
+    closest to kickoff (within 10 minutes)."""
+    near = [c for c in candles if c.get("end_period_ts") is not None
+            and abs(c["end_period_ts"] - start.timestamp()) <= 600]
+    if not near:
+        return None
+    c = min(near, key=lambda c: abs(c["end_period_ts"] - start.timestamp()))
+    bid, ask = _cents(c.get("yes_bid")), _cents(c.get("yes_ask"))
+    if bid is not None and ask is not None and 0 < bid <= ask < 100:
+        return round((bid + ask) / 2)
+    return ask_cents(c)
 
 
 # ---------- reporting ----------
@@ -271,7 +294,7 @@ def summarize(trades: list[Trade], label: str) -> str:
 
 
 def report(sport: str, rules: list[Rule], trades: list[Trade], games: int, matched: int) -> None:
-    print(f"\n=== {sport.upper()}: {games} finished games, {matched} matched to a Kalshi market ===")
+    print(f"\n=== {sport.upper()}: {games} finished games, {matched} with Kalshi prices at kickoff ===")
     for rule in rules:
         if rule.sport != sport:
             continue
@@ -302,18 +325,24 @@ def run(sport: str, days: int) -> list[Trade]:
     matched = 0
     for i, g in enumerate(games, 1):
         print(f"  replaying game {i}/{len(games)}", end="\r", flush=True)
-        if not any(r.sport == sport and replayable(r) and _pregame_ok(r, g.pregame_favorite_odds) for r in rules):
-            continue  # no rule could fire: skip the price download
-        resolved = matcher.resolve(g)
-        market = settled.market(resolved.ticker) if resolved else None
-        result = (market or {}).get("result")
+        event = matcher.resolve_event(g)
+        if event is None:
+            continue
+        start = datetime.fromisoformat(g.start_time_utc.replace("Z", "+00:00"))
+        length = GAME_LENGTH_MIN.get(sport, 240)
+        candles = {side: candles_for(kalshi, event[side]["ticker"], start, length) for side in ("home", "away")}
+        kickoff = {side: kickoff_cents(c, start) for side, c in candles.items()}
+        if None in kickoff.values() or kickoff["home"] == kickoff["away"]:
+            continue
+        fav = "home" if kickoff["home"] > kickoff["away"] else "away"
+        result = event[fav].get("result")
         if result not in ("yes", "no"):
             continue
         matched += 1
-        start = datetime.fromisoformat(g.start_time_utc.replace("Z", "+00:00"))
-        prices = price_path(kalshi, resolved.ticker, start, GAME_LENGTH_MIN.get(sport, 240))
-        trades += simulate_game(rules, sport, f"{g.away_team} @ {g.home_team}", g.favorite_team,
-                                start, g.pregame_favorite_odds, prices, result == "yes", resolved.ticker)
+        team = g.home_team if fav == "home" else g.away_team
+        trades += simulate_game(rules, sport, f"{g.away_team} @ {g.home_team}", team, start,
+                                american_odds(kickoff[fav]), asks(candles[fav]), result == "yes",
+                                event[fav]["ticker"])
         time.sleep(0.05)
     print()
     report(sport, rules, trades, len(games), matched)

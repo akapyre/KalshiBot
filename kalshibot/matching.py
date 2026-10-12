@@ -226,6 +226,15 @@ class MarketMatcher:
         }
 
     def resolve(self, snapshot: GameSnapshot, market: str = "game") -> ResolvedMarket | None:
+        event = self.resolve_event(snapshot, market)
+        if event is None:
+            return None
+        fav_side = "home" if snapshot.favorite_team == snapshot.home_team else "away"
+        return ResolvedMarket(ticker=event[fav_side]["ticker"], side="yes")
+
+    def resolve_event(self, snapshot: GameSnapshot, market: str = "game") -> dict[str, dict[str, Any]] | None:
+        """This game's Kalshi event as {"home": market, "away": market}, or
+        None (logged) when it can't be pinned down."""
         game = f"{snapshot.away_team} @ {snapshot.home_team}" + (" (first half)" if market == "first_half" else "")
         if snapshot.sport not in SERIES_BY_SPORT:
             logger.warning("No Kalshi series mapped for sport=%s", snapshot.sport)
@@ -252,5 +261,4 @@ class MarketMatcher:
             )
             return None
 
-        fav_side = "home" if snapshot.favorite_team == snapshot.home_team else "away"
-        return ResolvedMarket(ticker=events[same_day[0]][fav_side]["ticker"], side="yes")
+        return events[same_day[0]]

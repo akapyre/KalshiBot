@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from kalshibot.backtest import ask_cents, estimated_period, kalshi_fee, replayable, simulate_game
+from kalshibot.backtest import ask_cents, estimated_period, kalshi_fee, kickoff_cents, replayable, simulate_game
 from kalshibot.rules_engine import load_rules
 
 RULES, _ = load_rules(Path(__file__).resolve().parents[1] / "config" / "rules.yaml")
@@ -73,3 +73,19 @@ def test_estimated_periods():
 
 def test_fee_rounds_up():
     assert kalshi_fee(34, 44) == 0.59   # 0.07*34*0.44*0.56 = 0.5864
+
+
+def candle(minute, bid, ask):
+    return {"end_period_ts": T0 + minute * 60,
+            "yes_bid": {"close": f"{bid / 100:.4f}"}, "yes_ask": {"close": f"{ask / 100:.4f}"}}
+
+
+def test_kickoff_price_is_the_midpoint_nearest_the_start():
+    # Real archive shape (Bills-Ravens, Sep 2025): coin flip at kickoff,
+    # even though the game's final "closing line" said -2000.
+    candles = [candle(-10, 48, 49), candle(0, 48, 50), candle(60, 20, 22)]
+    assert kickoff_cents(candles, START) == 49
+
+
+def test_no_kickoff_price_without_a_candle_near_the_start():
+    assert kickoff_cents([candle(30, 40, 42)], START) is None
