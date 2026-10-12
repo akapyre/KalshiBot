@@ -89,3 +89,30 @@ def test_kickoff_price_is_the_midpoint_nearest_the_start():
 
 def test_no_kickoff_price_without_a_candle_near_the_start():
     assert kickoff_cents([candle(30, 40, 42)], START) is None
+
+
+def test_empty_downloads_are_not_cached(tmp_path, monkeypatch):
+    import kalshibot.backtest as bt
+    monkeypatch.setattr(bt, "CACHE", tmp_path)
+    assert bt._cached("x.json", lambda: []) == []
+    assert not (tmp_path / "x.json").exists()
+    (tmp_path / "y.json").write_text("[]")          # left over from an earlier run
+    assert bt._cached("y.json", lambda: [1]) == [1]  # retried, then saved
+    assert bt._cached("y.json", lambda: [2]) == [1]
+
+
+def test_throttled_calls_are_retried(monkeypatch):
+    import kalshibot.backtest as bt
+    monkeypatch.setattr(bt.time, "sleep", lambda s: None)
+    calls = []
+
+    class Throttled(Exception):
+        response = type("R", (), {"status_code": 429})()
+
+    def fn():
+        calls.append(1)
+        if len(calls) < 3:
+            raise Throttled()
+        return ["ok"]
+
+    assert bt._kalshi_call(fn) == ["ok"] and len(calls) == 3

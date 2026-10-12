@@ -141,13 +141,31 @@ def simulate_game(rules: list[Rule], sport: str, game: str, team: str, start: da
 # ---------- data (cached) ----------
 
 def _cached(name: str, fetch):
+    """Saved result if there is one; empty results are never saved (they
+    are usually a throttled or failed request), so they're retried."""
     path = CACHE / name
     if path.exists():
-        return json.loads(path.read_text())
+        data = json.loads(path.read_text())
+        if data:
+            return data
     data = fetch()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+    if data:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
     return data
+
+
+def _kalshi_call(fn, *args, **kwargs):
+    """One Kalshi read, paced, retrying when throttled (HTTP 429)."""
+    for wait in (2, 5, 15, None):
+        time.sleep(0.15)
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status != 429 or wait is None:
+                raise
+            time.sleep(wait)
 
 
 def finished_games(provider: SportsGameOddsProvider, sport: str, days: int) -> list[GameSnapshot]:
@@ -233,12 +251,12 @@ def candles_for(kalshi, ticker: str, start: datetime, minutes: int) -> list[dict
 
     def fetch():
         try:
-            candles = kalshi.get_candlesticks(ticker, a, b)
+            candles = _kalshi_call(kalshi.get_candlesticks, ticker, a, b)
         except Exception:
             candles = []
-        if not candles:
+        if not candles:  # settled before Kalshi's cutoff: only in the archive
             try:
-                candles = kalshi.get_candlesticks(ticker, a, b, historical=True)
+                candles = _kalshi_call(kalshi.get_candlesticks, ticker, a, b, historical=True)
             except Exception:
                 candles = []
         return candles
@@ -323,29 +341,33 @@ def run(sport: str, days: int) -> list[Trade]:
     games = finished_games(provider, sport, days)
     trades: list[Trade] = []
     matched = 0
+    skipped = {"no Kalshi event found": 0, "no Kalshi prices at kickoff": 0, "market not settled yes/no": 0}
     for i, g in enumerate(games, 1):
         print(f"  replaying game {i}/{len(games)}", end="\r", flush=True)
         event = matcher.resolve_event(g)
         if event is None:
+            skipped["no Kalshi event found"] += 1
             continue
         start = datetime.fromisoformat(g.start_time_utc.replace("Z", "+00:00"))
         length = GAME_LENGTH_MIN.get(sport, 240)
         candles = {side: candles_for(kalshi, event[side]["ticker"], start, length) for side in ("home", "away")}
         kickoff = {side: kickoff_cents(c, start) for side, c in candles.items()}
         if None in kickoff.values() or kickoff["home"] == kickoff["away"]:
+            skipped["no Kalshi prices at kickoff"] += 1
             continue
         fav = "home" if kickoff["home"] > kickoff["away"] else "away"
         result = event[fav].get("result")
         if result not in ("yes", "no"):
+            skipped["market not settled yes/no"] += 1
             continue
         matched += 1
         team = g.home_team if fav == "home" else g.away_team
         trades += simulate_game(rules, sport, f"{g.away_team} @ {g.home_team}", team, start,
                                 american_odds(kickoff[fav]), asks(candles[fav]), result == "yes",
                                 event[fav]["ticker"])
-        time.sleep(0.05)
     print()
     report(sport, rules, trades, len(games), matched)
+    print("  games left out: " + ", ".join(f"{n} {why}" for why, n in skipped.items()))
     return trades
 
 
