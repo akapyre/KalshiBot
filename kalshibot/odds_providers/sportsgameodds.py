@@ -111,7 +111,9 @@ class SportsGameOddsProvider:
     def _headers(self) -> dict[str, str]:
         return {"x-api-key": self._api_key}
 
-    def fetch_events(self, sport: Sport) -> list[dict[str, Any]]:
+    def fetch_events(self, sport: Sport, window: tuple[datetime, datetime] | None = None) -> list[dict[str, Any]]:
+        """Events starting in `window` (default: the last 12 hours through
+        the next 6 -- what the live bot needs)."""
         league_ids = LEAGUE_IDS.get(sport) or []
         if not league_ids:
             return []
@@ -123,8 +125,9 @@ class SportsGameOddsProvider:
         # "anything starting soon enough to be worth caching a pregame line
         # for" instead.
         now = datetime.now(timezone.utc)
-        starts_after = (now - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        starts_before = (now + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        start, end = window or (now - timedelta(hours=12), now + timedelta(hours=6))
+        starts_after = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        starts_before = end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         events: list[dict[str, Any]] = []
         failures = 0

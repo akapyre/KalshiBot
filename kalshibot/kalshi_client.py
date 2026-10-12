@@ -120,6 +120,29 @@ class KalshiClient:
     def list_series(self, **params: Any) -> dict[str, Any]:
         return self._request("GET", "/series", params=params)
 
+    def get_candlesticks(self, ticker: str, start_ts: int, end_ts: int, interval_min: int = 1,
+                         historical: bool = False) -> list[dict[str, Any]]:
+        """Price candles for one market. Markets that settled before Kalshi's
+        historical cutoff are only served by the /historical endpoint."""
+        series = ticker.split("-")[0]
+        path = (f"/historical/markets/{ticker}/candlesticks" if historical
+                else f"/series/{series}/markets/{ticker}/candlesticks")
+        params = {"start_ts": start_ts, "end_ts": end_ts, "period_interval": interval_min}
+        return self._request("GET", path, params=params).get("candlesticks", [])
+
+    def iter_historical_markets(self, max_pages: int = 20, **params: Any) -> list[dict[str, Any]]:
+        """Settled markets older than Kalshi's historical cutoff."""
+        markets: list[dict[str, Any]] = []
+        cursor = None
+        for _ in range(max_pages):
+            page = self._request("GET", "/historical/markets",
+                                 params={"limit": 1000, **params, **({"cursor": cursor} if cursor else {})})
+            markets.extend(page.get("markets", []))
+            cursor = page.get("cursor")
+            if not cursor:
+                break
+        return markets
+
     def get_orderbook(self, ticker: str) -> dict[str, Any]:
         return self._request("GET", f"/markets/{ticker}/orderbook")
 
