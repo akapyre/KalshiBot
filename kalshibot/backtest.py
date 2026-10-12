@@ -293,8 +293,11 @@ def kickoff_cents(candles: list[dict[str, Any]], start: datetime) -> int | None:
     c = min(near, key=lambda c: abs(c["end_period_ts"] - start.timestamp()))
     bid, ask = _cents(c.get("yes_bid")), _cents(c.get("yes_ask"))
     if bid is not None and ask is not None and 0 < bid <= ask < 100:
-        return round((bid + ask) / 2)
-    return ask_cents(c)
+        price = round((bid + ask) / 2)
+    else:
+        price = ask_cents(c)
+    # A one-sided book (ask 100c / 0c) has no usable price -- and no odds.
+    return price if price is not None and 1 <= price <= 99 else None
 
 
 # ---------- reporting ----------

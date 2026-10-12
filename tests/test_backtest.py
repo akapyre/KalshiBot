@@ -116,3 +116,8 @@ def test_throttled_calls_are_retried(monkeypatch):
         return ["ok"]
 
     assert bt._kalshi_call(fn) == ["ok"] and len(calls) == 3
+
+
+def test_one_sided_book_at_kickoff_has_no_price():
+    # No sellers: ask 1.00, bid 0 -> unusable (american_odds(100) divides by zero)
+    assert kickoff_cents([candle(0, 0, 100)], START) is None
