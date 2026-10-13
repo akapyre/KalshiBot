@@ -337,22 +337,36 @@ def report(sport: str, rules: list[Rule], trades: list[Trade], games: int, match
                 print("    " + summarize(bucket, f"  bought at {lo}-{lo + 9}¢ ({american_odds(lo + 5):+d})").strip())
 
 
-def run(sport: str, days: int) -> list[Trade]:
+@dataclass
+class GameData:
+    """One finished game, ready to replay: the kickoff favorite, its price
+    at kickoff and minute by minute after, and whether it won."""
+    sport: str
+    game: str
+    team: str
+    start: datetime
+    kickoff: int                       # favorite's price at kickoff, cents
+    prices: list[tuple[int, int]]      # (unix seconds, YES ask cents)
+    won: bool
+    ticker: str
+
+
+def load_games(sport: str, days: int) -> tuple[list[GameData], int, dict[str, int]]:
+    """Finished games with Kalshi prices: (games, games found, why others
+    were left out). Uses and fills the download cache."""
     logging.getLogger("kalshibot.matching").setLevel(logging.ERROR)
     logging.getLogger("kalshibot.odds_providers.sportsgameodds").setLevel(logging.ERROR)
-    rules, _ = load_rules()
     kalshi = build_kalshi_client(demo=False)
     provider = SportsGameOddsProvider(pregame_store=PregameOddsStore(CACHE / "pregame.json"))
     settled = SettledMarkets(kalshi, days + 2)
     matcher = MarketMatcher(settled)
 
     print(f"\n{sport}: loading {days} days of games...")
-    games = finished_games(provider, sport, days)
-    trades: list[Trade] = []
-    matched = 0
+    found = finished_games(provider, sport, days)
+    games: list[GameData] = []
     skipped = {"no Kalshi event found": 0, "no Kalshi prices at kickoff": 0, "market not settled yes/no": 0}
-    for i, g in enumerate(games, 1):
-        print(f"  replaying game {i}/{len(games)}", end="\r", flush=True)
+    for i, g in enumerate(found, 1):
+        print(f"  loading prices {i}/{len(found)}", end="\r", flush=True)
         event = matcher.resolve_event(g)
         if event is None:
             skipped["no Kalshi event found"] += 1
@@ -369,13 +383,21 @@ def run(sport: str, days: int) -> list[Trade]:
         if result not in ("yes", "no"):
             skipped["market not settled yes/no"] += 1
             continue
-        matched += 1
-        team = g.home_team if fav == "home" else g.away_team
-        trades += simulate_game(rules, sport, f"{g.away_team} @ {g.home_team}", team, start,
-                                american_odds(kickoff[fav]), asks(candles[fav]), result == "yes",
-                                event[fav]["ticker"])
+        games.append(GameData(sport, f"{g.away_team} @ {g.home_team}",
+                              g.home_team if fav == "home" else g.away_team, start, kickoff[fav],
+                              asks(candles[fav]), result == "yes", event[fav]["ticker"]))
     print()
-    report(sport, rules, trades, len(games), matched)
+    return games, len(found), skipped
+
+
+def run(sport: str, days: int) -> list[Trade]:
+    rules, _ = load_rules()
+    games, found, skipped = load_games(sport, days)
+    trades: list[Trade] = []
+    for g in games:
+        trades += simulate_game(rules, sport, g.game, g.team, g.start, american_odds(g.kickoff),
+                                g.prices, g.won, g.ticker)
+    report(sport, rules, trades, found, len(games))
     print("  games left out: " + ", ".join(f"{n} {why}" for why, n in skipped.items()))
     return trades
 
