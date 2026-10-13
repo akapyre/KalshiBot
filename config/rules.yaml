@@ -84,6 +84,11 @@
 #      CFB fade capped at +150 (bets past +150 lost almost every time).
 #      Paused rules have `enabled: false` -- flip it to true to resume.
 #
+#  12. Rule sweep (2026-10-13): NFL fade and the original college fade /
+#      4th-quarter rules and tennis rule PAUSED; added cfb_big_favorite_near_even,
+#      cfb_late_favorite_slide and tennis_huge_favorite_trial. These new rules
+#      trigger on Kalshi's YES ask (kalshi_cents), not sportsbook odds.
+#
 # MULTI-BET: each rule bets at most once per game. Rules that may stack on
 # the same game: the three NFL rules (and CFB's), and soccer's first-half
 # rule with soccer_heavy_favorite.
@@ -147,6 +152,7 @@ rules:
     max_bets_per_game: 2       # can bet alongside soccer_heavy_favorite on the same match
 
   - id: tennis_heavy_favorite
+    enabled: false             # paused 2026-10-13 after the rule sweep -- set to true to turn back on
     summary: "Favorite opened at -200 or stronger. Bet it when its live odds fade to near even: -110 to +100."   # plain-English version for the results page
     sport: tennis
     description: >
@@ -162,6 +168,7 @@ rules:
     max_bets_per_game: 1
 
   - id: nfl_favorite_fade
+    enabled: false             # paused 2026-10-13 after the rule sweep -- set to true to turn back on
     summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 through -100 (still a slight favorite)."   # plain-English version for the results page
     sport: nfl
     description: >
@@ -218,6 +225,7 @@ rules:
     max_bets_per_game: 3
 
   - id: cfb_favorite_fade
+    enabled: false             # paused 2026-10-13 after the rule sweep -- set to true to turn back on
     summary: "Favorite opened at -250 or stronger. Bet it when its live odds fade to -115 through +150."   # plain-English version for the results page
     sport: cfb
     description: >
@@ -234,6 +242,7 @@ rules:
     max_bets_per_game: 3       # mirrors the NFL rules' stacking -- see nfl_moderate_favorite
 
   - id: cfb_fourth_quarter_reentry
+    enabled: false             # paused 2026-10-13 after the rule sweep -- set to true to turn back on
     summary: "After a favorite-fade bet on the same game: bet again in the 4th quarter if the favorite is +110 to +165."   # plain-English version for the results page
     sport: cfb
     description: >
@@ -268,6 +277,52 @@ rules:
       max_odds: 150
     invalidate_if: {}
     max_bets_per_game: 3
+
+  - id: cfb_big_favorite_near_even
+    summary: "Favorite opened at -400 or stronger. Bet it when Kalshi's price falls to 45-59¢ (-144 to +122), any time."
+    sport: cfb
+    description: >
+      From the rule sweep (2026-10-13): -400-or-stronger college favorites
+      that slipped to roughly even money won ~68% vs ~54% priced, on both
+      older and newer games. Triggers on Kalshi's own price.
+    pregame:
+      side: favorite
+      max_odds: -400
+    trigger:
+      kalshi_cents: [45, 59]     # Kalshi YES ask, inclusive
+    invalidate_if: {}
+    max_bets_per_game: 2       # can stack with cfb_late_favorite_slide
+
+  - id: cfb_late_favorite_slide
+    summary: "Favorite opened at -200 or stronger. In the 4th quarter, bet it when Kalshi's price is 40-49¢ (+104 to +150)."
+    sport: cfb
+    description: >
+      From the rule sweep (2026-10-13): -200-or-stronger college favorites
+      priced 40-49c in the 4th quarter won ~56-63% vs ~44% priced.
+      Triggers on Kalshi's own price.
+    pregame:
+      side: favorite
+      max_odds: -200
+    trigger:
+      kalshi_cents: [40, 49]
+      quarter: 4
+    invalidate_if: {}
+    max_bets_per_game: 2
+
+  - id: tennis_huge_favorite_trial
+    summary: "TRIAL. Favorite opened at -500 or stronger. Bet it when Kalshi's price falls to 40-59¢ (-144 to +150)."
+    sport: tennis
+    description: >
+      Trial from the rule sweep (2026-10-13): -500-or-stronger favorites at
+      40-59c returned ~+10% on newer matches, but the tennis sweep overall
+      looked close to chance. Watch it on the results page.
+    pregame:
+      side: favorite
+      max_odds: -500
+    trigger:
+      kalshi_cents: [40, 59]
+    invalidate_if: {}
+    max_bets_per_game: 1
 
   - id: nhl_favorite_trails_by_one
     summary: "Favorite opened at -170 or stronger. Bet it when the underdog leads 1-0 or 2-1, unless it's the last 6 minutes of the 3rd period or overtime."   # plain-English version for the results page

@@ -121,3 +121,13 @@ def test_throttled_calls_are_retried(monkeypatch):
 def test_one_sided_book_at_kickoff_has_no_price():
     # No sellers: ask 1.00, bid 0 -> unusable (american_odds(100) divides by zero)
     assert kickoff_cents([candle(0, 0, 100)], START) is None
+
+
+
+def test_kalshi_priced_rule_replays_on_the_kalshi_price():
+    # -450 college favorite drifts from 80c to 52c in the 2nd quarter
+    prices = path((0, 80), (60, 52))
+    trades = simulate_game(RULES, "cfb", "g", "Fav", START, -450, prices, won=True)
+    # (paused rules are replayed too, for comparison -- look at the new one)
+    assert [(t.rule, t.price) for t in trades if t.rule == "cfb_big_favorite_near_even"] == \
+        [("cfb_big_favorite_near_even", 52)]

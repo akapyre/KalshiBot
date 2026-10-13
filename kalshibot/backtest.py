@@ -51,7 +51,7 @@ from .main import SPORTS, build_kalshi_client
 from .matching import MarketMatcher
 from .odds_providers.base import GameSnapshot
 from .odds_providers.sportsgameodds import SportsGameOddsProvider
-from .rules_engine import Rule, _invalidated, _pregame_ok, _trigger_ok, load_rules
+from .rules_engine import Rule, _invalidated, _pregame_ok, _trigger_ok, kalshi_band_ok, load_rules
 from .state import PregameOddsStore
 
 CACHE = Path("state/backtest_cache")
@@ -127,6 +127,8 @@ def simulate_game(rules: list[Rule], sport: str, game: str, team: str, start: da
             if rule.requires_prior_rule and rule.requires_prior_rule not in fired:
                 continue
             if _invalidated(rule, snap) or not _trigger_ok(rule, snap):
+                continue
+            if rule.kalshi_band is not None and not kalshi_band_ok(rule, ask):
                 continue
             fired.add(rule.id)
             contracts = STAKE_CENTS // ask

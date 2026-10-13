@@ -35,6 +35,10 @@ class Rule:
     market: str = "game"
     # `enabled: false` in rules.yaml pauses a rule without deleting it.
     enabled: bool = True
+    # Kalshi-priced rules (trigger: kalshi_cents: [lo, hi]) fire on Kalshi's
+    # own YES ask being within lo..hi cents, not on sportsbook odds -- the
+    # backtest found the edge in Kalshi's price, which books may not share.
+    kalshi_band: tuple[int, int] | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Rule":
@@ -62,6 +66,7 @@ class Rule:
             max_bets_per_game=int(d.get("max_bets_per_game", 1)),
             market=str(d.get("market", "game")),
             enabled=bool(d.get("enabled", True)),
+            kalshi_band=tuple(trigger["kalshi_cents"]) if trigger.get("kalshi_cents") else None,
         )
 
 
@@ -100,7 +105,17 @@ def _rule_odds(rule: Rule, snapshot: GameSnapshot) -> int | None:
 
 
 def _trigger_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
-    odds = _rule_odds(rule, snapshot)
+    if rule.kalshi_band is None and not _odds_ok(rule, _rule_odds(rule, snapshot)):
+        return False
+    return _game_state_ok(rule, snapshot)
+
+
+def kalshi_band_ok(rule: Rule, ask_cents: int) -> bool:
+    lo, hi = rule.kalshi_band
+    return lo <= ask_cents <= hi
+
+
+def _odds_ok(rule: Rule, odds: int | None) -> bool:
     if odds is None:
         return False
     if rule.trigger_min is not None:
@@ -111,6 +126,10 @@ def _trigger_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
             return False
     if rule.trigger_max is not None and odds > rule.trigger_max:
         return False
+    return True
+
+
+def _game_state_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
     if rule.trigger_quarter is not None and snapshot.period != rule.trigger_quarter:
         return False
     if rule.trigger_period_min is not None:
@@ -174,6 +193,9 @@ def kalshi_price_problem(rule: Rule, ask_cents: int) -> str | None:
     None if it's fine. The sportsbook feed can lag the game (a Dodgers
     trigger at +115 found Kalshi at 26c = +285), so the price actually paid
     has to respect the same limits -- "not past +200" means not past +200."""
+    if rule.kalshi_band is not None:
+        lo, hi = rule.kalshi_band
+        return None if lo <= ask_cents <= hi else f"outside the rule's {lo}-{hi}¢ range"
     ceilings = [o for o in (rule.trigger_max, rule.odds_beyond_invalidate) if o is not None]
     if ceilings and ask_cents < _cents_for_odds(min(ceilings)):
         return f"past the rule's {min(ceilings):+d} limit"
@@ -192,6 +214,9 @@ class RulesEngine:
         self._rules = rules
         self._stake_usd = stake_usd
         self._state = state_store
+
+    def rule(self, rule_id: str) -> Rule | None:
+        return next((r for r in self._rules if r.id == rule_id), None)
 
     def kalshi_price_problem(self, rule_id: str, ask_cents: int) -> str | None:
         rule = next((r for r in self._rules if r.id == rule_id), None)

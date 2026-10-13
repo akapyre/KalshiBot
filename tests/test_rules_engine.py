@@ -42,7 +42,17 @@ def unpaused_engine(tmp_path):
     rules, stake = load_rules(RULES_PATH)
     rules = [dataclasses.replace(r, enabled=True,
                                  trigger_max=None if r.id in ("nfl_favorite_fade", "cfb_favorite_fade") else r.trigger_max)
-             for r in rules]
+             for r in rules if r.kalshi_band is None]
+    store = BetStateStore(tmp_path / "bets.json")
+    return RulesEngine(rules, stake, store), store
+
+
+@pytest.fixture
+def paused_rules_engine(tmp_path):
+    """Every sportsbook-odds rule switched on, with its current bands -- to
+    keep testing rules that are paused in the live config."""
+    rules, stake = load_rules(RULES_PATH)
+    rules = [dataclasses.replace(r, enabled=True) for r in rules if r.kalshi_band is None]
     store = BetStateStore(tmp_path / "bets.json")
     return RulesEngine(rules, stake, store), store
 
@@ -100,21 +110,21 @@ def test_soccer_moderate_favorite_skips_if_trailing_after_half(engine):
     (-110, True), (-105, True), (100, True),       # faded to near even
     (101, False), (150, False),                    # became a real underdog
 ])
-def test_tennis_heavy_favorite_bets_near_even(engine, live, fires):
-    eng, _ = engine
+def test_tennis_heavy_favorite_bets_near_even(paused_rules_engine, live, fires):
+    eng, _ = paused_rules_engine
     snap = make_snapshot(sport="tennis", pregame_favorite_odds=-300, live_favorite_odds=live)
     assert [d.rule_id for d in eng.evaluate(snap)] == (["tennis_heavy_favorite"] if fires else [])
 
 
-def test_tennis_needs_a_minus_200_favorite(engine):
-    eng, _ = engine
+def test_tennis_needs_a_minus_200_favorite(paused_rules_engine):
+    eng, _ = paused_rules_engine
     assert eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-199, live_favorite_odds=-105)) == []
     assert [d.rule_id for d in eng.evaluate(
         make_snapshot(sport="tennis", pregame_favorite_odds=-200, live_favorite_odds=-105))] == ["tennis_heavy_favorite"]
 
 
-def test_nfl_favorite_fade_triggers(engine):
-    eng, _ = engine
+def test_nfl_favorite_fade_triggers(paused_rules_engine):
+    eng, _ = paused_rules_engine
     snap = make_snapshot(sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=-115)
     decisions = eng.evaluate(snap)
     assert [d.rule_id for d in decisions] == ["nfl_favorite_fade"]
@@ -227,8 +237,8 @@ def test_mlb_favorite_fade_skips_out_of_band(engine):
     assert eng.evaluate(snap) == []
 
 
-def test_cfb_favorite_fade_triggers(engine):
-    eng, _ = engine
+def test_cfb_favorite_fade_triggers(paused_rules_engine):
+    eng, _ = paused_rules_engine
     snap = make_snapshot(sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=-115)
     decisions = eng.evaluate(snap)
     assert [d.rule_id for d in decisions] == ["cfb_favorite_fade"]
@@ -352,8 +362,8 @@ def test_kalshi_price_must_respect_the_rule_band(tmp_path, rule_id, ask, ok):
 
 def test_watched_rules_lists_rules_whose_pregame_condition_is_met(engine):
     eng, _ = engine
-    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-400, live_favorite_odds=-250)) \
-        == ["tennis_heavy_favorite"]
+    assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-600, live_favorite_odds=-250)) \
+        == ["tennis_huge_favorite_trial"]
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-150)) == []
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=None)) == []
 
@@ -407,23 +417,55 @@ def test_backtest_changes_in_the_live_rules(engine):
                                                           live_favorite_odds=120))] == []
 
 
-def test_nfl_fade_only_between_minus_115_and_minus_100(engine):
-    eng, _ = engine
-    fires = lambda live: [d.rule_id for d in eng.evaluate(
+def test_nfl_fade_only_between_minus_115_and_minus_100(paused_rules_engine):
+    eng, _ = paused_rules_engine
+    fires = lambda live: "nfl_favorite_fade" in [d.rule_id for d in eng.evaluate(
         make_snapshot(game_id=str(live), sport="nfl", pregame_favorite_odds=-260, live_favorite_odds=live))]
-    assert fires(-108) == ["nfl_favorite_fade"]
-    assert fires(-100) == ["nfl_favorite_fade"]
-    assert fires(105) == [] and fires(-130) == []
+    assert fires(-108) and fires(-100)
+    assert not fires(105) and not fires(-130)
 
 
-def test_cfb_fade_capped_at_plus_150(engine):
-    eng, _ = engine
-    fires = lambda live: [d.rule_id for d in eng.evaluate(
+def test_cfb_fade_capped_at_plus_150(paused_rules_engine):
+    eng, _ = paused_rules_engine
+    fires = lambda live: "cfb_favorite_fade" in [d.rule_id for d in eng.evaluate(
         make_snapshot(game_id=str(live), sport="cfb", pregame_favorite_odds=-260, live_favorite_odds=live))]
-    assert fires(140) == ["cfb_favorite_fade"]
-    assert fires(160) == []
+    assert fires(140) and not fires(160)
 
 
 def test_paused_rules_are_not_watched(engine):
     eng, _ = engine
     assert "nfl_moderate_favorite" not in eng.watched_rules(make_snapshot(sport="nfl", pregame_favorite_odds=-160))
+
+
+
+def test_kalshi_priced_rules_arm_on_game_state_and_fire_on_kalshi_price(engine):
+    eng, _ = engine
+    big = make_snapshot(sport="cfb", pregame_favorite_odds=-450, live_favorite_odds=-900, period=2)
+    # Armed regardless of sportsbook odds (Kalshi's price decides) ...
+    assert [d.rule_id for d in eng.evaluate(big)] == ["cfb_big_favorite_near_even"]
+    # ... and the price check is the rule's cent range, inclusive.
+    assert eng.kalshi_price_problem("cfb_big_favorite_near_even", 45) is None
+    assert eng.kalshi_price_problem("cfb_big_favorite_near_even", 59) is None
+    assert eng.kalshi_price_problem("cfb_big_favorite_near_even", 60) is not None
+    assert eng.kalshi_price_problem("cfb_big_favorite_near_even", 44) is not None
+
+
+def test_cfb_late_slide_only_in_the_4th_quarter(engine):
+    eng, _ = engine
+    q3 = make_snapshot(sport="cfb", pregame_favorite_odds=-220, live_favorite_odds=120, period=3)
+    q4 = make_snapshot(sport="cfb", pregame_favorite_odds=-220, live_favorite_odds=120, period=4)
+    assert eng.evaluate(q3) == []
+    assert [d.rule_id for d in eng.evaluate(q4)] == ["cfb_late_favorite_slide"]
+
+
+def test_tennis_trial_needs_a_minus_500_favorite(engine):
+    eng, _ = engine
+    assert eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-450)) == []
+    assert [d.rule_id for d in eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-600))] \
+        == ["tennis_huge_favorite_trial"]
+
+
+def test_paused_after_the_sweep(engine):
+    eng, _ = engine
+    for rid in ("nfl_favorite_fade", "cfb_favorite_fade", "cfb_fourth_quarter_reentry", "tennis_heavy_favorite"):
+        assert eng.rule(rid).enabled is False

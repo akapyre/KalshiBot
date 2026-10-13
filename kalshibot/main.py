@@ -103,6 +103,25 @@ def period_text(snapshot) -> str:
     return f"{PERIOD_NAMES.get(snapshot.sport, '')}{snapshot.period}"
 
 
+# A game whose Kalshi market can't be found is retried after this long,
+# not every cycle (Kalshi-priced rules ask about every qualifying game).
+RESOLVE_RETRY_S = 30 * 60
+
+
+def resolve_cached(matcher: MarketMatcher, cache: dict, snapshot, market: str):
+    """matcher.resolve, remembered per game: the market for a game doesn't
+    change, and listing Kalshi's series every cycle would be slow."""
+    key = (snapshot.game_id, market)
+    hit = cache.get(key)
+    if hit is not None:
+        resolved, when = hit
+        if resolved is not None or time.time() - when < RESOLVE_RETRY_S:
+            return resolved
+    resolved = matcher.resolve(snapshot, market)
+    cache[key] = (resolved, time.time())
+    return resolved
+
+
 def _ledger_signature(ledger: BetLedger) -> tuple:
     return tuple((b["order_id"], b["status"]) for b in ledger.all_bets())
 
@@ -147,6 +166,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     # (game, rule, error code) already sent to the phone, so a failure that
     # repeats every cycle (e.g. insufficient balance) notifies only once.
     notified_failures: set[tuple[str, str, str]] = set()
+    resolved_cache: dict = {}
     publisher = SitePublisher()
     rule_texts = load_rule_texts()
     if publisher.enabled:
@@ -218,15 +238,20 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                     )
                 decisions = engine.evaluate(snapshot)
                 for decision in decisions:
-                    # Logged before any Kalshi call, so a trigger is visible
-                    # even if finding/pricing the Kalshi market fails.
-                    logger.info(
-                        "RULE TRIGGERED: %s -- %s @ %s, betting %s at live %+d (pregame %+d)",
-                        decision.rule_id, snapshot.away_team, snapshot.home_team,
-                        decision.team, snapshot.live_favorite_odds, snapshot.pregame_favorite_odds,
-                    )
+                    rule = engine.rule(decision.rule_id)
+                    # Kalshi-priced rules are "armed" all game long and only fire
+                    # once Kalshi's price is in range -- checked below, quietly.
+                    kalshi_priced = rule is not None and rule.kalshi_band is not None
+                    if not kalshi_priced:
+                        # Logged before any Kalshi call, so a trigger is visible
+                        # even if finding/pricing the Kalshi market fails.
+                        logger.info(
+                            "RULE TRIGGERED: %s -- %s @ %s, betting %s at live %+d (pregame %+d)",
+                            decision.rule_id, snapshot.away_team, snapshot.home_team,
+                            decision.team, snapshot.live_favorite_odds, snapshot.pregame_favorite_odds,
+                        )
                     try:
-                        resolved = matcher.resolve(snapshot, decision.market)
+                        resolved = resolve_cached(matcher, resolved_cache, snapshot, decision.market)
                         if resolved is None:
                             continue  # already logged by matcher; never guess a ticker
 
@@ -241,12 +266,20 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                             continue
 
                         problem = engine.kalshi_price_problem(decision.rule_id, ask)
+                        if problem and kalshi_priced:
+                            continue  # not in range yet -- the normal case, every cycle
                         if problem:
                             logger.warning(
                                 "SKIPPED %s on %s: Kalshi price %d¢ (%+d) is %s -- will re-check next cycle",
                                 decision.rule_id, decision.team, ask, american_odds(ask), problem,
                             )
                             continue
+                        if kalshi_priced:
+                            logger.info(
+                                "RULE TRIGGERED: %s -- %s @ %s, betting %s at Kalshi %d¢ (%+d), pregame %+d",
+                                decision.rule_id, snapshot.away_team, snapshot.home_team, decision.team,
+                                ask, american_odds(ask), snapshot.pregame_favorite_odds,
+                            )
 
                         executor.execute(
                             decision,
