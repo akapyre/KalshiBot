@@ -178,7 +178,13 @@ def finished_games(provider: SportsGameOddsProvider, sport: str, days: int) -> l
         key = f"sgo-{sport}-{start:%Y%m%d%H}-{stop:%Y%m%d%H}.json"
         # Only cache windows that are fully in the past (results are final).
         fetch = lambda a=start, b=stop: provider.fetch_events(sport, window=(a, b))
-        events = _cached(key, fetch) if stop < end - timedelta(days=1) else fetch()
+        try:
+            events = _cached(key, fetch) if stop < end - timedelta(days=1) else fetch()
+        except Exception as e:
+            # A failed week (network blip, rate limit) is skipped, not fatal;
+            # it isn't cached, so the next run fetches it again.
+            print(f"\n  (skipped {start:%b %d}-{stop:%b %d}: {e})")
+            events = []
         for ev in events:
             if ev.get("type") != "match":
                 continue
