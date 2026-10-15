@@ -149,7 +149,8 @@ MAX_SPREAD_CENTS = 10
 
 
 def mid_cents(market: dict[str, Any]) -> int | None:
-    """Fair price now: halfway between bid and ask, else the last trade."""
+    """Fair price now: halfway between bid and ask (the bid if they are far
+    apart), else the last trade."""
     def cents(key: str) -> float | None:
         raw = market.get(f"{key}_dollars")
         try:
@@ -158,9 +159,10 @@ def mid_cents(market: dict[str, Any]) -> int | None:
             return None
     bid, ask = cents("yes_bid"), cents("yes_ask")
     if bid and ask and 0 < bid <= ask < 100:
-        # A wide gap (e.g. 30¢ bid, 97¢ ask -- seen on live NHL props) means
-        # no one is really quoting; the midpoint would be made up.
-        return round((bid + ask) / 2) if ask - bid <= MAX_SPREAD_CENTS else None
+        # A wide gap (Cale Makar 1+ points: 39¢ bid / 70¢ ask, 2026-10-14)
+        # makes the midpoint a guess; use the bid instead -- what a buyer
+        # really pays, so a player only counts as -200 if someone pays 67¢+.
+        return round((bid + ask) / 2) if ask - bid <= MAX_SPREAD_CENTS else round(bid)
     last = cents("last_price")
     return round(last) if last and 1 <= last <= 99 else None
 

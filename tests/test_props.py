@@ -176,7 +176,7 @@ def test_season_long_series_and_wide_spreads_are_ignored(tmp_path):
                                {"ticker": "KXNHLSEASONPPTS", "title": "Season Player Points"}]}
     w = PropWatcher(Kalshi(), [RULE], PropPregameStore(tmp_path / "p.json"))
     assert w.series() == [("points", "KXNHLPTS")]
-    assert mid_cents({"yes_bid_dollars": "0.30", "yes_ask_dollars": "0.97"}) is None
+    assert mid_cents({"yes_bid_dollars": "0.39", "yes_ask_dollars": "0.70"}) == 39   # wide: the bid
 
 
 def test_same_line_rule_bets_the_minus_200_line_itself(tmp_path):
