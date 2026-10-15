@@ -29,6 +29,12 @@ class BetStateStore:
     def has_fired(self, game_id: str, rule_id: str) -> bool:
         return rule_id in self.fired_rules(game_id)
 
+    def count_fired(self, game_prefix: str, rule_id: str) -> int:
+        """How many bet ids starting with game_prefix fired this rule (player
+        props record one id per player: "<game>|<stat>|<player>")."""
+        with self._lock:
+            return sum(rule_id in rules for g, rules in self._data.items() if g.startswith(game_prefix))
+
     def record(self, game_id: str, rule_id: str) -> None:
         with self._lock:
             self._data.setdefault(game_id, [])

@@ -85,7 +85,8 @@ class BetDecision:
 
 def load_rules(path: str | Path = "config/rules.yaml") -> tuple[list[Rule], float]:
     raw = yaml.safe_load(Path(path).read_text())
-    rules = [Rule.from_dict(r) for r in raw["rules"]]
+    # Player-prop rules (kind: player_prop) are run by props.PropWatcher.
+    rules = [Rule.from_dict(r) for r in raw["rules"] if r.get("kind", "game") == "game"]
     return rules, float(raw.get("stake_usd", 15))
 
 

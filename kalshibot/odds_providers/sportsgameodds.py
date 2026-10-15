@@ -107,6 +107,8 @@ class SportsGameOddsProvider:
         # market) will NEVER get a moneyline -- warn about each one once,
         # not every single poll cycle forever.
         self._warned_no_odds: set[str] = set()
+        # Games from the last fetch that haven't started, per sport.
+        self._upcoming: dict[str, list[GameSnapshot]] = {}
 
     def _headers(self) -> dict[str, str]:
         return {"x-api-key": self._api_key}
@@ -197,7 +199,13 @@ class SportsGameOddsProvider:
                 side = "home" if snapshot.favorite_team == snapshot.home_team else "away"
                 self._pregame_store.set(snapshot.game_id, side, snapshot.live_favorite_odds)
             snapshots.append(snapshot)
+        self._upcoming[sport] = [s for s in snapshots if not s.started]
         return [s for s in snapshots if s.is_live]
+
+    def list_upcoming_games(self, sport: Sport) -> list[GameSnapshot]:
+        """Games not yet started, from the last list_live_games call (no
+        extra request)."""
+        return list(self._upcoming.get(sport, []))
 
     def get_pregame_odds(self, sport: Sport, game_id: str) -> int | None:
         stored = self._pregame_store.get(game_id)
@@ -275,6 +283,8 @@ class SportsGameOddsProvider:
                 away_score=away.get("score"),
                 past_halftime=past_halftime,
                 first_half_favorite_odds=first_half.get(fav_side),
+                player_names=_player_names(event),
+                started=_has_started(status),
             )
         except (KeyError, ValueError, TypeError):
             logger.warning(
@@ -325,6 +335,19 @@ def _first_half_moneyline(odds: dict[str, Any]) -> dict[str, int]:
         if len(prices) == 2:
             return prices
     return {}
+
+
+def _player_names(event: dict[str, Any]) -> tuple[str, ...]:
+    """Full names from the event's `players` map (playerID -> {name,
+    firstName, lastName, ...})."""
+    names = []
+    for p in (event.get("players") or {}).values():
+        if not isinstance(p, dict):
+            continue
+        name = p.get("name") or " ".join(x for x in (p.get("firstName"), p.get("lastName")) if x)
+        if name:
+            names.append(str(name))
+    return tuple(names)
 
 
 def _has_started(status: dict[str, Any]) -> bool:

@@ -11,6 +11,7 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose record        (the bot's wins and losses; add "import" for past bets,
                                                   or "reset" to start over at 0-0 -- stop the bot first)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
+       python -m kalshibot.diagnose props         (Kalshi NHL player-prop markets the prop rule would use)
 
 Runs the exact same query and parsing as the live bot, then prints each
 event with the reason it is or isn't counted as a live game. "kalshi"
@@ -283,6 +284,49 @@ def check_record(do_import: bool) -> None:
     print("\n" + record_line(ledger.summary()))
 
 
+def check_props() -> None:
+    """What the NHL player-prop rule finds: Kalshi's NHL series, sample
+    prop markets as Kalshi sends them, and each game's matched players."""
+    from .props import STAT_LABELS, PropWatcher, load_prop_rules
+    kalshi = build_kalshi_client(demo=False)
+    watcher = PropWatcher(kalshi, load_prop_rules())
+    if not watcher.rules:
+        print("No enabled player-prop rule in config/rules.yaml.")
+        return
+    print("Every Kalshi series starting KXNHL:")
+    for s in kalshi.list_series(category="Sports").get("series", []):
+        if str(s.get("ticker", "")).upper().startswith("KXNHL"):
+            print(f"  {s.get('ticker'):28} {s.get('title')}")
+    series = watcher.series()
+    print(f"\nUsed for props: {series or 'NONE -- tell Claude which series above are player points / shots'}")
+    for stat, ticker in series:
+        sample = kalshi.list_markets(series_ticker=ticker, status="open", limit=3).get("markets", [])
+        print(f"\n{ticker} ({stat}) -- {len(sample)} sample open markets:")
+        for m in sample:
+            print("  " + json.dumps({k: m.get(k) for k in (
+                "ticker", "event_ticker", "title", "subtitle", "yes_sub_title", "floor_strike",
+                "strike_type", "yes_bid_dollars", "yes_ask_dollars", "exchange_index")}))
+    markets = watcher.fetch()
+    print(f"\n{len(markets)} prop markets read as <player> <line>+ "
+          f"(e.g. {', '.join(f'{m.player} {m.line}+ {m.stat}' for m in markets[:3]) or 'none'})")
+
+    provider = SportsGameOddsProvider()
+    live = provider.list_live_games("nhl")
+    games = provider.list_upcoming_games("nhl") + live
+    print(f"\nNHL games now: {len(live)} live, {len(games) - len(live)} upcoming")
+    for g in games:
+        ladders = watcher.for_game(markets, g)
+        print(f"\n{g.away_team} @ {g.home_team} ({'LIVE' if g in live else 'upcoming'}, {game_date(g)}): "
+              f"{len(g.player_names)} players on SportsGameOdds' roster, {len(ladders)} with Kalshi lines")
+        for (stat, player), ladder in sorted(ladders.items())[:6]:
+            lines = ", ".join(f"{n}+ {yes_ask_cents(m.market) or '-'}¢" for n, m in sorted(ladder.items()))
+            print(f"  {player} {STAT_LABELS[stat]}: {lines}")
+        for row in watcher.describe_watch(markets, g):
+            print(f"  WATCHING {row}")
+    print("\nPuck-drop prices are saved while the bot runs before a game starts; "
+          "this check doesn't save any.")
+
+
 def check_site() -> None:
     """Build the results page now and publish it if RESULTS_REPO and
     GITHUB_TOKEN are set -- to test publishing without waiting for the bot."""
@@ -333,6 +377,9 @@ def main() -> None:
         return
     if sport == "order":
         check_order()
+        return
+    if sport == "props":
+        check_props()
         return
     if sport == "markets":
         target = sys.argv[2] if len(sys.argv) > 2 else "nhl"

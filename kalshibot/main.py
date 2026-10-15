@@ -24,8 +24,9 @@ from .kalshi_client import DEFAULT_BASE_URL, DEMO_BASE_URL, KalshiClient, Kalshi
 from .matching import MarketMatcher
 from .odds_providers.base import Sport
 from .odds_providers.sportsgameodds import SportsGameOddsProvider
+from .props import PropWatcher, load_prop_rules
 from .risk import RiskConfig, RiskManager
-from .rules_engine import RulesEngine, load_rules
+from .rules_engine import BetDecision, RulesEngine, load_rules
 from .state import BetStateStore
 
 # Tennis (ATP/WTA) came with the upgraded SportsGameOdds plan; its events
@@ -122,6 +123,49 @@ def resolve_cached(matcher: MarketMatcher, cache: dict, snapshot, market: str):
     return resolved
 
 
+def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store: BetStateStore,
+              executor: Executor, kalshi: KalshiClient, stake_usd: float) -> None:
+    """One cycle of the player-prop rules: save puck-drop prices for
+    upcoming games, then bet any live player whose lower line is in range."""
+    sports = {r.sport for r in watcher.rules}
+    upcoming = [g for sport in sports for g in odds_provider.list_upcoming_games(sport)]
+    live = [g for g in live_games if g.sport in sports]
+    if not upcoming and not live:
+        return
+    markets = watcher.fetch()
+    watcher.record_pregame(markets, upcoming)
+    for snapshot in live:
+        game = f"{snapshot.away_team} @ {snapshot.home_team}"
+        watching = watcher.describe_watch(markets, snapshot)
+        if watching:
+            logger.info("WATCHING props %s: %d players -- %s", game, len(watching), "; ".join(watching))
+        for bet in watcher.candidates(markets, snapshot):
+            rule = bet.rule
+            if state_store.has_fired(bet.key, rule.id):
+                continue
+            if state_store.count_fired(f"{snapshot.game_id}|", rule.id) >= rule.max_bets_per_game:
+                continue
+            logger.info(
+                "RULE TRIGGERED: %s -- %s, betting %s at Kalshi %d¢ (%+d); %d+ was %d¢ (%+d) at puck drop",
+                rule.id, game, bet.label, bet.ask, american_odds(bet.ask), bet.main_line,
+                bet.main_pregame_cents, american_odds(bet.main_pregame_cents),
+            )
+            decision = BetDecision(
+                rule_id=rule.id, game_id=bet.key, sport=snapshot.sport, team=bet.label,
+                live_odds=american_odds(bet.ask), stake_usd=stake_usd, market="player_prop",
+                pregame_odds=american_odds(bet.main_pregame_cents), game=game,
+            )
+            try:
+                executor.execute(
+                    decision, ticker=bet.bet.market["ticker"], side="yes", yes_price_cents=bet.ask,
+                    exchange_index=bet.bet.market.get("exchange_index"),
+                    open_position_count=get_open_position_count(kalshi), realized_pnl_today_usd=0.0,
+                )
+            except Exception as e:
+                body = getattr(getattr(e, "response", None), "text", "") or ""
+                logger.exception("Kalshi order failed for %s -- will retry next cycle %s", bet.label, body[:300])
+
+
 def _ledger_signature(ledger: BetLedger) -> tuple:
     return tuple((b["order_id"], b["status"]) for b in ledger.all_bets())
 
@@ -161,6 +205,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     state_store = BetStateStore()
     risk = RiskManager(RiskConfig.load())
     engine = RulesEngine(rules, stake_usd, state_store)
+    prop_watcher = PropWatcher(kalshi, load_prop_rules())
     ledger = BetLedger()
     executor = Executor(kalshi, risk, state_store, dry_run=dry_run, ledger=ledger)
     # (game, rule, error code) already sent to the phone, so a failure that
@@ -207,6 +252,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
         live_counts: dict[str, int] = {}
         live_rows: list[dict] = []
         ledger_before = _ledger_signature(ledger)
+        live_games: list = []
         for sport in SPORTS:
             try:
                 snapshots = odds_provider.list_live_games(sport)
@@ -216,6 +262,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                 continue
             time.sleep(1)  # space out per-sport requests so we don't burst a free-tier rate limit
             live_counts[sport] = len(snapshots)
+            live_games.extend(snapshots)
 
             for snapshot in snapshots:
                 watched = engine.watched_rules(snapshot)
@@ -309,6 +356,11 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                                 tags=["warning"], priority=4,
                             )
 
+        if prop_watcher.rules:
+            try:
+                run_props(prop_watcher, odds_provider, live_games, state_store, executor, kalshi, risk.stake_usd())
+            except Exception:
+                logger.exception("Player-prop check failed this cycle")
         settle_finished_bets(kalshi, ledger)
         try:
             html = build_html(ledger.all_bets(), rule_texts, live_rows, mode=site_mode, stake_usd=risk.stake_usd())

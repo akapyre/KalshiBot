@@ -32,6 +32,9 @@ class GameSnapshot:
     past_halftime: bool | None = None
     # favorite_team's current FIRST-HALF moneyline (soccer); None if not quoted
     first_half_favorite_odds: int | None = None
+    # Full names of the players listed for this game (player-prop rules)
+    player_names: tuple[str, ...] = ()
+    started: bool = False        # under way or over (pregame prices stop being saved)
 
 
 class OddsProvider(Protocol):
