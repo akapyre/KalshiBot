@@ -1,25 +1,27 @@
-"""NHL player-prop rule: when a player is -200 or stronger to reach a line
-at puck drop, bet the next LOWER line once Kalshi prices it at -140 or
-longer.
+"""NHL player-prop rule: a player who is -200 or stronger at puck drop to
+reach a line (e.g. "1+ points") is bet on that line once Kalshi's price
+drifts to -140 or longer during the game.
 
-Example: Connor McDavid "3+ shots on goal" is 70¢ (-233) at puck drop. His
-"2+ shots" line is the alternative one step down. If, during the game,
-"2+ shots" falls to 58¢ (-140) or less, buy YES on "2+ shots".
+Example: Cale Makar "1+ points" is 67¢ (-200) at puck drop. Midway through
+the game he has no point yet and "1+ points" falls to 55¢ (-122): buy YES.
 
 Everything is priced on Kalshi, where the bet is placed:
   - "the line he's -200 to hit" = the HIGHEST line on his Kalshi ladder
     whose price at puck drop was 67¢ (-200) or more. Kalshi lists each
-    line as its own market ("2+", "3+", ...).
-  - the bet = the line one below it, bought at Kalshi's YES ask.
-  - a player whose -200 line is already the lowest one (e.g. "1+ points")
-    has no lower line, so he is skipped.
+    line as its own market ("1+", "2+", ...).
+  - the bet = that same line (bet_line: same), or the line one below it
+    (bet_line: lower), bought at Kalshi's YES ask. The rule was first asked
+    for as "lower", but on Kalshi only "1+" ever reaches -200, and there's
+    nothing below 1+ -- so it runs as "same" (your call, 2026-10-15).
 
-How Kalshi's prop markets are found (NOT yet checked against live data --
-`python -m kalshibot.diagnose props` shows what is found):
-  - series: Kalshi Sports series whose ticker starts with KXNHL and whose
-    name mentions the stat (points / shots), not team, period or total ones
-  - market: one per player and line, named like "Connor McDavid: 2+" --
-    the player name and line are read from yes_sub_title/title
+How Kalshi's prop markets are found (checked 2026-10-14 with
+`python -m kalshibot.diagnose props`):
+  - series: KXNHLPTS "Pro Hockey Points", KXNHLAST "Pro Hockey Assists",
+    KXNHLANYGOAL / KXNHLGOAL goalscorer. Kalshi has NO player shots-on-goal
+    series.
+  - market: one per player and line, e.g. ticker
+    KXNHLPTS-26OCT14DALCOL-COLCMAKAR8-2, yes_sub_title "Cale Makar: 2+",
+    floor_strike 1.5 / strike_type "greater", event KXNHLPTS-26OCT14DALCOL
   - game: the market's event date must equal the game's date AND the
     player must be on SportsGameOdds' roster for that game, so a market is
     never tied to the wrong game. Anything unclear is skipped.
@@ -53,9 +55,14 @@ logger = logging.getLogger("kalshibot.props")
 # player-prop series, and words that rule a series out.
 STAT_SERIES: dict[str, re.Pattern] = {
     "points": re.compile(r"point|pts"),
-    "shots": re.compile(r"shot|sog"),
+    "assists": re.compile(r"assist"),
+    "goals": re.compile(r"goal"),
+    "shots": re.compile(r"shot|sog"),   # none on Kalshi as of 2026-10-14
 }
-SERIES_SKIP = re.compile(r"team|total|spread|period|1st|first|power|blocked|game$|wins|goalie|save")
+# Not one game's player stat: season-long (KXNHLSEASONPPTS), playoff,
+# series, first-10-minutes / first-goal, team and period markets.
+SERIES_SKIP = re.compile(r"team|total|spread|period|1st|first|power|blocked|game$|wins|goalie|save|season"
+                         r"|playoff|series|10|comeback")
 
 
 @dataclass
@@ -67,6 +74,7 @@ class PropRule:
     band: tuple[int, int]          # buy the lower line at this Kalshi ask, cents
     max_bets_per_game: int
     enabled: bool = True
+    bet_line: str = "same"         # "same" line, or the "lower" line below it
 
     @property
     def pregame_min_cents(self) -> int:
@@ -82,6 +90,7 @@ class PropRule:
             band=tuple(d["trigger"]["kalshi_cents"]),
             max_bets_per_game=int(d.get("max_bets_per_game", 1)),
             enabled=bool(d.get("enabled", True)),
+            bet_line=str(d.get("bet_line", "same")),
         )
 
 
@@ -123,10 +132,20 @@ def parse_player(text: str) -> str | None:
 def parse_market(stat: str, market: dict[str, Any]) -> PropMarket | None:
     for field in ("yes_sub_title", "title", "subtitle"):
         text = str(market.get(field) or "")
-        line, player = parse_line(text), parse_player(text)
-        if line is not None and player:
+        player = parse_player(text)
+        if not player:
+            continue
+        line = parse_line(text)
+        if line is None and market.get("strike_type") == "greater" and market.get("floor_strike") is not None:
+            # "greater than 0.5" = 1+ (e.g. an anytime-goal market named
+            # only by the player)
+            line = int(float(market["floor_strike"])) + 1
+        if line is not None:
             return PropMarket(stat, player, line, market)
     return None
+
+
+MAX_SPREAD_CENTS = 10
 
 
 def mid_cents(market: dict[str, Any]) -> int | None:
@@ -139,7 +158,9 @@ def mid_cents(market: dict[str, Any]) -> int | None:
             return None
     bid, ask = cents("yes_bid"), cents("yes_ask")
     if bid and ask and 0 < bid <= ask < 100:
-        return round((bid + ask) / 2)
+        # A wide gap (e.g. 30¢ bid, 97¢ ask -- seen on live NHL props) means
+        # no one is really quoting; the midpoint would be made up.
+        return round((bid + ask) / 2) if ask - bid <= MAX_SPREAD_CENTS else None
     last = cents("last_price")
     return round(last) if last and 1 <= last <= 99 else None
 
@@ -186,7 +207,7 @@ class PropBet:
         return f"{self.snapshot.game_id}|{self.stat}|{_normalize(self.player)}"
 
 
-STAT_LABELS = {"points": "points", "shots": "shots on goal"}
+STAT_LABELS = {"points": "points", "assists": "assists", "goals": "goals", "shots": "shots on goal"}
 
 
 class PropWatcher:
@@ -236,13 +257,20 @@ class PropWatcher:
         players on the game's roster, only markets dated the game's day."""
         roster = {_normalize(p) for p in snapshot.player_names}
         day = game_date(snapshot)
-        ladders: dict[tuple[str, str], dict[int, list[PropMarket]]] = defaultdict(lambda: defaultdict(list))
+        # (stat, player) -> series -> line -> markets
+        found: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         for pm in markets:
-            if _normalize(pm.player) in roster and day is not None \
-                    and event_date(str(pm.market.get("event_ticker") or "")) == day:
-                ladders[(pm.stat, pm.player)][pm.line].append(pm)
-        # A line listed twice is ambiguous -- drop it rather than guess.
-        return {k: {line: ms[0] for line, ms in lines.items() if len(ms) == 1} for k, lines in ladders.items()}
+            event = str(pm.market.get("event_ticker") or "")
+            if _normalize(pm.player) in roster and day is not None and event_date(event) == day:
+                found[(pm.stat, pm.player)][event.split("-")[0]][pm.line].append(pm)
+        ladders = {}
+        for key, by_series in found.items():
+            # Two series for one stat (Kalshi has two goalscorer series):
+            # use the one with the most lines. A line listed twice in one
+            # series is ambiguous -- drop it rather than guess.
+            lines = max(by_series.values(), key=len)
+            ladders[key] = {line: ms[0] for line, ms in lines.items() if len(ms) == 1}
+        return ladders
 
     def record_pregame(self, markets: list[PropMarket], upcoming: list[GameSnapshot]) -> None:
         prices = {}
@@ -276,13 +304,13 @@ class PropWatcher:
                 if not strong:
                     continue
                 main = max(strong)
-                lower = ladder.get(main - 1)
-                if lower is None:
-                    continue   # already the lowest line (e.g. 1+ points)
-                ask = yes_ask_cents(lower.market)
+                target = ladder.get(main if rule.bet_line == "same" else main - 1)
+                if target is None:
+                    continue   # "lower" on the lowest line (e.g. 1+ points)
+                ask = yes_ask_cents(target.market)
                 lo, hi = rule.band
                 if ask is not None and lo <= ask <= hi:
-                    out.append(PropBet(rule, snapshot, player, stat, main, pregame[main], lower, ask))
+                    out.append(PropBet(rule, snapshot, player, stat, main, pregame[main], target, ask))
         return out
 
     def describe_watch(self, markets: list[PropMarket], snapshot: GameSnapshot) -> list[str]:
@@ -295,10 +323,13 @@ class PropWatcher:
                     continue
                 pregame = {line: self._store.get(pm.market["ticker"]) for line, pm in ladder.items()}
                 strong = [line for line, p in pregame.items() if p is not None and p >= rule.pregame_min_cents]
-                if strong and max(strong) - 1 in ladder:
-                    main = max(strong)
-                    ask = yes_ask_cents(ladder[main - 1].market)
+                if not strong:
+                    continue
+                main = max(strong)
+                line = main if rule.bet_line == "same" else main - 1
+                if line in ladder:
+                    ask = yes_ask_cents(ladder[line].market)
                     rows.append(f"{player} {main}+ {STAT_LABELS[stat]} was {pregame[main]}¢ "
-                                f"({american_odds(pregame[main]):+d}); {main - 1}+ now "
+                                f"({american_odds(pregame[main]):+d}); {line}+ now "
                                 + (f"{ask}¢ ({american_odds(ask):+d})" if ask else "no ask"))
         return rows

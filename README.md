@@ -170,8 +170,8 @@ lid closed while plugged in:
 
 ## NHL player props
 
-`nhl_prop_lower_line` in `config/rules.yaml` bets player points / shots-on-goal
-lines on Kalshi (logic in `kalshibot/props.py`). It needs the bot running
+`nhl_prop_favorite_drift` in `config/rules.yaml` bets player points / assists /
+goals lines on Kalshi (logic in `kalshibot/props.py`). It needs the bot running
 before puck drop -- that's when each line's starting price is saved -- and
 it only bets players SportsGameOdds lists for that game. To see which Kalshi
 prop markets it finds and which players it's watching:

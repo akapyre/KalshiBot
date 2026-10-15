@@ -89,10 +89,9 @@
 #      cfb_late_favorite_slide and tennis_huge_favorite_trial. These new rules
 #      trigger on Kalshi's YES ask (kalshi_cents), not sportsbook odds.
 #
-#  13. NHL player props (nhl_prop_lower_line), added 2026-10-15: see the
-#      rule's description. Kalshi's NHL prop markets were not yet checked
-#      against live data -- `python -m kalshibot.diagnose props` shows what
-#      the bot finds.
+#  13. NHL player props (nhl_prop_favorite_drift), added 2026-10-15: see
+#      the rule's description. `python -m kalshibot.diagnose props` shows
+#      what the bot finds on Kalshi.
 #
 # MULTI-BET: each rule bets at most once per game. Rules that may stack on
 # the same game: the three NFL rules (and CFB's), and soccer's first-half
@@ -347,21 +346,23 @@ rules:
         minutes_remaining: 6
     max_bets_per_game: 1
 
-  - id: nhl_prop_lower_line
+  - id: nhl_prop_favorite_drift
     kind: player_prop   # player props -- run by kalshibot/props.py, not the game rules
-    summary: "Player is -200 or stronger at puck drop to hit a points or shots-on-goal line (e.g. 3+ shots). Bet the next lower line (2+ shots) once Kalshi prices it at -140 or longer (30-58¢). Max 2 per game."
+    summary: "Player is -200 or stronger at puck drop to get 1+ points, assists or goals. Bet that same line once Kalshi prices it at -140 or longer (30-58¢). Max 2 per game."
     description: >
       Added 2026-10-15. All prices are Kalshi's. "-200 to hit" = the highest
       line on the player's Kalshi ladder priced 67¢ (-200) or more at puck
-      drop. The bet = YES on the line one below it, when its ask is 30-58¢
-      (-140 to +233). A player whose -200 line is already the lowest one
-      (usually "1+ points") has no lower line and is skipped. One bet per
-      player per stat; at most 2 prop bets per game. The 30¢ floor and the
-      per-game cap were not in your instructions -- they guard against an
-      injured/benched player whose price collapses, and against many
-      players all sliding at once late in a game. Change or remove them here.
+      drop (in practice "1+"). The bet = YES on that same line when its ask
+      is 30-58¢ (-140 to +233). First asked for as "bet the next lower
+      line", but Kalshi has no shots-on-goal props and nothing below "1+",
+      so it bets the same line (your call). One bet per player per stat; at
+      most 2 prop bets per game. The 30¢ floor and the per-game cap were
+      not in your instructions -- they guard against an injured/benched
+      player whose price collapses, and against many players all sliding
+      at once late in a game. Change or remove them here.
     sport: nhl
-    stats: [points, shots]
+    stats: [points, assists, goals]
+    bet_line: same
     pregame: {max_odds: -200}
     trigger: {kalshi_cents: [30, 58]}
     max_bets_per_game: 2
