@@ -24,8 +24,8 @@ def test_nfl_moderate_favorite_fires_once_in_band_and_settles():
     trades = simulate_game(RULES, "nfl", "DET @ CAR", "Detroit", START, -225, prices, won=True)
     assert [t.rule for t in trades] == ["nfl_moderate_favorite"]
     t = trades[0]
-    assert (t.price, t.contracts, t.minute) == (44, 34, 60)
-    assert t.pnl == round(34 - 34 * 0.44 - kalshi_fee(34, 44), 2)
+    assert (t.price, t.contracts, t.minute) == (44, 56, 60)   # $25 // 44¢ = 56 contracts
+    assert t.pnl == round(56 - 56 * 0.44 - kalshi_fee(56, 44), 2)
 
 
 def test_steep_nfl_favorite_can_stack_fade_then_q4_reentry():

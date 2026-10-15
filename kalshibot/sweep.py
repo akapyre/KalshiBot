@@ -94,7 +94,7 @@ def samples(game: GameData) -> list[tuple[float, int, int | None]]:
 
 
 def bet_pnl(ask: int, won: bool) -> tuple[float, float]:
-    """(cost, profit) of a $15 bet at this price."""
+    """(cost, profit) of a $25 bet at this price."""
     contracts = STAKE_CENTS // ask
     cost = contracts * ask / 100
     return cost, (contracts if won else 0) - cost - kalshi_fee(contracts, ask)

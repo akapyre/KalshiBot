@@ -23,7 +23,7 @@ odds provider (live odds + score/period)
   comparisons. **Read the comments at the top of this file** -- several of
   your rules had a direction/threshold that could be read two ways in plain
   English, and I picked one reading for each. They're flagged inline.
-- `config/risk.yaml` -- $15 flat stake; `daily_loss_cap_usd` and
+- `config/risk.yaml` -- $25 flat stake; `daily_loss_cap_usd` and
   `max_concurrent_positions` are both `null` (disabled) per your instructions,
   wired up so you can set them later without touching code.
 - `kalshibot/kalshi_client.py` -- Kalshi's RSA-PSS signed REST API.

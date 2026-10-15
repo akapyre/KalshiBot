@@ -311,7 +311,7 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
 
         settle_finished_bets(kalshi, ledger)
         try:
-            html = build_html(ledger.all_bets(), rule_texts, live_rows, mode=site_mode)
+            html = build_html(ledger.all_bets(), rule_texts, live_rows, mode=site_mode, stake_usd=risk.stake_usd())
             # Upload straight away when a bet was placed or settled this cycle.
             publisher.update(html, force=_ledger_signature(ledger) != ledger_before)
         except Exception:

@@ -44,7 +44,7 @@
 #      overlaps nfl_favorite_fade's -250-or-steeper range. A steep favorite
 #      (-250 or worse) can trigger nfl_favorite_fade, nfl_moderate_favorite,
 #      AND (in the 4th quarter) nfl_fourth_quarter_reentry all on the same
-#      game -- up to three separate $15 wagers -- confirmed intentional, not
+#      game -- up to three separate $25 wagers -- confirmed intentional, not
 #      a bug. "during that period" (for the +100/+150 trigger) has no
 #      quarter/time gate in this rule -- read as "once, whenever live odds
 #      land in that band," not a specific game window. Tell me if you meant
@@ -65,7 +65,7 @@
 #      c) If the game clock can't be read in the 3rd period, that period is
 #         treated as "too late" rather than guessed at.
 #
-# STAKE / RISK: flat $15 per wager (config/risk.yaml). No daily loss cap and
+# STAKE / RISK: flat $25 per wager (config/risk.yaml). No daily loss cap and
 # no max concurrent positions are enforced right now, per your instruction --
 # both are wired up as config knobs so you can turn them on later without
 # code changes.
@@ -75,7 +75,7 @@
 #      half is under way and it's 0-0, bet the favorite to win the FIRST
 #      HALF on Kalshi when its first-half odds are -130 to +120 ("-130 or
 #      greater, don't bet past +120"). Allowed alongside
-#      soccer_heavy_favorite on the same match (your call): up to two $15
+#      soccer_heavy_favorite on the same match (your call): up to two $25
 #      bets on a -300 favorite.
 #
 #  11. Backtest changes (2026-10-12, Kalshi price history, ~400 days):
@@ -93,7 +93,7 @@
 # the same game: the three NFL rules (and CFB's), and soccer's first-half
 # rule with soccer_heavy_favorite.
 
-stake_usd: 15
+stake_usd: 25
 
 rules:
   - id: soccer_heavy_favorite
@@ -211,7 +211,7 @@ rules:
       Wager once when live price is between +100 and +150. On a favorite
       that's -250 or steeper, this can fire ALONGSIDE nfl_favorite_fade
       (and, later in the game, nfl_fourth_quarter_reentry too) for the same
-      game -- up to 3 separate $15 wagers on one NFL game in the specific
+      game -- up to 3 separate $25 wagers on one NFL game in the specific
       case where a steep favorite hits all three conditions. Confirmed
       intentional -- all three NFL rules' max_bets_per_game is 3 so none of
       them block each other, whatever order they fire in.

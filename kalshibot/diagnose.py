@@ -33,6 +33,7 @@ from . import notify
 from .executor import order_cost, yes_ask_cents
 from .kalshi_client import KalshiClient
 from .ledger import BetLedger, record_line
+from .risk import RiskConfig
 from .main import build_kalshi_client
 from .matching import SERIES_BY_SPORT, MarketMatcher, event_date, game_date
 from .odds_providers.sportsgameodds import (
@@ -288,7 +289,8 @@ def check_site() -> None:
     from .publish import SitePublisher
     from .report import build_html, load_rule_texts
     publisher = SitePublisher()
-    html = build_html(BetLedger().all_bets(), load_rule_texts(), [], mode="live")
+    html = build_html(BetLedger().all_bets(), load_rule_texts(), [], mode="live",
+                      stake_usd=RiskConfig.load().stake_usd)
     uploaded = publisher.update(html, force=True)
     print("Wrote site/index.html (open it in a browser to preview).")
     if not publisher.enabled:

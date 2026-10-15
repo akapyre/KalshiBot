@@ -174,9 +174,10 @@ def _pill(text: str, kind: str) -> str:
 
 
 def build_html(bets: list[dict[str, Any]], rules: list[dict[str, str]], live: list[dict[str, Any]],
-               *, mode: str, generated_at: datetime | None = None) -> str:
+               *, mode: str, generated_at: datetime | None = None, stake_usd: float | None = None) -> str:
     generated_at = generated_at or datetime.now(timezone.utc)
     st = _stats(bets)
+    stake_hint = f"${stake_usd:g} per bet, " if stake_usd else ""
     open_bets = [b for b in bets if b["status"] == "open"]
     at_risk = sum(b["cost"] + (b.get("fee") or 0) for b in open_bets)
 
@@ -284,7 +285,7 @@ def build_html(bets: list[dict[str, Any]], rules: list[dict[str, str]], live: li
                           live_rows, "No game with a qualifying favorite is in progress."),
         rule_table=_table(["Rule", "Sport", "Bets", "W&ndash;L", "Win %", "Net", "ROI"],
                           by_rule, "No bets yet."),
-        rule_cards="".join(rule_cards),
+        rule_cards="".join(rule_cards), stake_hint=escape(stake_hint),
         sport_opts=sport_opts, rule_opts=rule_opts,
         history_table=_table(["Placed", "Sport", "Team", "Rule", "Odds", "Price", "Cost", "Result", "P/L"],
                              hist_rows, "No bets yet.", cls="history"),
@@ -430,7 +431,7 @@ PAGE = """<!doctype html>
   </section>
   <section id="rules" class="card">
     <h2>Rules</h2>
-    <p class="hint">$15 per bet, buying the pregame favorite on Kalshi</p>
+    <p class="hint">{stake_hint}buying the pregame favorite on Kalshi</p>
     <div class="rules">{rule_cards}</div>
   </section>
   <section id="history" class="card">

@@ -1,8 +1,8 @@
-# Risk controls. Per your instructions: flat $15/wager, no daily loss cap,
+# Risk controls. Per your instructions: flat $25/wager (was $15 until 2026-10-15), no daily loss cap,
 # no max concurrent positions -- both limits are `null` (disabled) but wired
 # up so you can turn them on later without touching code.
 
-stake_usd: 15
+stake_usd: 25
 
 daily_loss_cap_usd: null       # e.g. 150 to stop trading for the day after -$150
 max_concurrent_positions: null # e.g. 5 to cap how many open games can have a live bet

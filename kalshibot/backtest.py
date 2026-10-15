@@ -16,7 +16,7 @@ For every finished game in the window:
      version of this backtest made that mistake and "won" 91%.)
   3. The price is sampled every 5 minutes (like the bot's polling) and the
      rule fires the first time Kalshi's price converts into its odds band.
-  4. The market's result settles the $15 bet, fees included.
+  4. The market's result settles the $25 bet, fees included.
 
 What it can't replay exactly -- read results with this in mind:
   - Live odds come from Kalshi's price, not sportsbooks (the live bot needs
@@ -55,7 +55,7 @@ from .rules_engine import Rule, _invalidated, _pregame_ok, _trigger_ok, kalshi_b
 from .state import PregameOddsStore
 
 CACHE = Path("state/backtest_cache")
-STAKE_CENTS = 1500
+STAKE_CENTS = 2500
 SAMPLE_EVERY_S = 300          # the bot polls every 5 minutes
 # How long after the start to follow the price, by sport.
 GAME_LENGTH_MIN = {"nfl": 240, "cfb": 270, "mlb": 240, "nhl": 210, "soccer": 150, "tennis": 240}
