@@ -363,7 +363,7 @@ def test_kalshi_price_must_respect_the_rule_band(tmp_path, rule_id, ask, ok):
 def test_watched_rules_lists_rules_whose_pregame_condition_is_met(engine):
     eng, _ = engine
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-600, live_favorite_odds=-250)) \
-        == ["tennis_huge_favorite_trial"]
+        == ["tennis_huge_favorite_trial", "tennis_favorite_slide", "tennis_favorite_slide_rebet"]
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=-150)) == []
     assert eng.watched_rules(make_snapshot(sport="tennis", pregame_favorite_odds=None)) == []
 
@@ -461,11 +461,60 @@ def test_cfb_late_slide_only_in_the_4th_quarter(engine):
 def test_tennis_trial_needs_a_minus_500_favorite(engine):
     eng, _ = engine
     assert eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-450)) == []
-    assert [d.rule_id for d in eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-600))] \
-        == ["tennis_huge_favorite_trial"]
+    assert "tennis_huge_favorite_trial" in [d.rule_id for d in eng.evaluate(make_snapshot(sport="tennis", pregame_favorite_odds=-600))]
 
 
 def test_paused_after_the_sweep(engine):
     eng, _ = engine
     for rid in ("nfl_favorite_fade", "cfb_favorite_fade", "cfb_fourth_quarter_reentry", "tennis_heavy_favorite"):
         assert eng.rule(rid).enabled is False
+
+
+def _fired(decisions):
+    # The Kalshi-priced tennis trial is checked later, against Kalshi's ask.
+    return {d.rule_id: d.stake_usd for d in decisions if d.rule_id != "tennis_huge_favorite_trial"}
+
+
+def test_soccer_first_half_level_early_bets_ten_dollars_while_level_before_35(engine):
+    eng, _ = engine
+    snap = make_snapshot(pregame_favorite_odds=-220, first_half_favorite_odds=110,
+                         period=1, home_score=0, away_score=0, match_minute=20)
+    assert _fired(eng.evaluate(snap)).get("soccer_first_half_level_early") == 10.0
+
+
+@pytest.mark.parametrize("change", [
+    dict(home_score=0, away_score=1),   # favorite trailing
+    dict(match_minute=35),              # from the 35th minute on
+    dict(match_minute=None),            # minute unknown
+    dict(first_half_favorite_odds=-105),  # not yet +100
+    dict(period=2),                     # second half
+])
+def test_soccer_first_half_level_early_skips(engine, change):
+    eng, _ = engine
+    base = dict(pregame_favorite_odds=-220, first_half_favorite_odds=110,
+                period=1, home_score=1, away_score=0, match_minute=20)
+    snap = make_snapshot(**{**base, **change})
+    assert "soccer_first_half_level_early" not in _fired(eng.evaluate(snap))
+
+
+def test_tennis_favorite_slide_bets_fifteen_then_rebets_past_minus_110(engine):
+    eng, store = engine
+    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-600, live_favorite_odds=-300)
+    fired = _fired(eng.evaluate(snap))
+    assert fired == {"tennis_favorite_slide": 15.0}
+    store.record("g1", "tennis_favorite_slide")
+
+    assert _fired(eng.evaluate(dataclasses.replace(snap, live_favorite_odds=-120))) == {}
+    rebet = dataclasses.replace(snap, live_favorite_odds=105)
+    assert _fired(eng.evaluate(rebet)) == {"tennis_favorite_slide_rebet": 15.0}
+
+
+def test_tennis_favorite_slide_limits(engine):
+    eng, _ = engine
+    snap = make_snapshot(sport="tennis", pregame_favorite_odds=-600)
+    assert _fired(eng.evaluate(dataclasses.replace(snap, live_favorite_odds=-350))) == {}   # not past -350
+    assert _fired(eng.evaluate(dataclasses.replace(snap, live_favorite_odds=250))) == {}    # past +200
+    weaker = dataclasses.replace(snap, pregame_favorite_odds=-450, live_favorite_odds=-300)
+    assert _fired(eng.evaluate(weaker)) == {}                                                # opened weaker than -500
+    # the re-bet never comes first
+    assert "tennis_favorite_slide_rebet" not in _fired(eng.evaluate(dataclasses.replace(snap, live_favorite_odds=100)))

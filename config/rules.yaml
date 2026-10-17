@@ -93,9 +93,14 @@
 #      the rule's description. `python -m kalshibot.diagnose props` shows
 #      what the bot finds on Kalshi.
 #
+#  14. Per-rule stakes (2026-10-16): a rule's own `stake_usd` overrides the
+#      $25 below. soccer_first_half_level_early bets $10; the two
+#      tennis_favorite_slide rules bet $15 each.
+#
 # MULTI-BET: each rule bets at most once per game. Rules that may stack on
-# the same game: the three NFL rules (and CFB's), and soccer's first-half
-# rule with soccer_heavy_favorite.
+# the same game: the three NFL rules (and CFB's); soccer's two first-half
+# rules with soccer_heavy_favorite; the tennis trial with the two $15
+# tennis_favorite_slide rules (up to $55 on one match).
 
 stake_usd: 25
 
@@ -114,7 +119,7 @@ rules:
       max_odds: 200            # inclusive upper bound
     invalidate_if:
       odds_beyond: 200         # do not place once live odds have exceeded +200
-    max_bets_per_game: 2       # so soccer_first_half_favorite on the same match doesn't block it
+    max_bets_per_game: 3       # so the two first-half rules on the same match don't block it
 
   - id: soccer_moderate_favorite
     summary: "Favorite opened between -150 and -199. Bet it when its live odds move past +115; not if it's down a goal after halftime, or past +200."   # plain-English version for the results page
@@ -153,7 +158,30 @@ rules:
       quarter: 1                 # first half only (not at halftime)
       scores: [[0, 0]]           # still 0-0
     invalidate_if: {}
-    max_bets_per_game: 2       # can bet alongside soccer_heavy_favorite on the same match
+    max_bets_per_game: 3       # can bet alongside soccer_heavy_favorite and soccer_first_half_level_early
+
+  - id: soccer_first_half_level_early
+    summary: "$10. Favorite opened at -200 or stronger. While it's tied or winning before the 35th minute, bet it to win the first half once its first-half odds reach +100 or longer."
+    sport: soccer
+    market: first_half
+    stake_usd: 10
+    description: >
+      Added 2026-10-16, copied from a friend's bot (their R007: "-200 or
+      bigger pregame favorite, bet on them to lead at halftime when their
+      first-half odds go to +100 while tied or winning, not from the 35th
+      minute on"). $10 a bet. No upper odds limit -- their rule names none.
+      Runs alongside soccer_first_half_favorite (your call), so a -300
+      favorite can get both first-half bets.
+    pregame:
+      side: favorite
+      max_odds: -200
+    trigger:
+      min_odds: 100              # +100 or longer
+      quarter: 1                 # first half only
+      favorite_not_trailing: true
+      before_minute: 35          # not from the 35th minute on; unknown minute = no bet
+    invalidate_if: {}
+    max_bets_per_game: 3
 
   - id: tennis_heavy_favorite
     enabled: false             # paused 2026-10-13 after the rule sweep -- set to true to turn back on
@@ -326,7 +354,46 @@ rules:
     trigger:
       kalshi_cents: [40, 59]
     invalidate_if: {}
-    max_bets_per_game: 1
+    max_bets_per_game: 3       # runs alongside the two $15 tennis_favorite_slide rules (your call)
+
+  - id: tennis_favorite_slide
+    summary: "$15. Favorite opened at -500 or stronger. Bet it when its live odds slip past -350 (up to +200)."
+    sport: tennis
+    stake_usd: 15
+    description: >
+      Added 2026-10-16. "Past -350" = -349 or looser. The +200 ceiling was
+      not in your instructions -- it matches the re-bet's cap, so a match
+      first seen with the favorite already at +300 isn't bet. Change it
+      here.
+    pregame:
+      side: favorite
+      max_odds: -500
+    trigger:
+      min_odds: -350
+      exclusive_min: true
+      max_odds: 200
+    invalidate_if: {}
+    max_bets_per_game: 3
+
+  - id: tennis_favorite_slide_rebet
+    summary: "$15. After the -350 bet on the same match: bet again if the favorite slips past -110 (up to +200)."
+    sport: tennis
+    stake_usd: 15
+    description: >
+      Added 2026-10-16. Second $15 on the same player once their live odds
+      are -109 or looser, capped at +200 (your call). Only after
+      tennis_favorite_slide has bet this match; at the earliest one poll
+      after it.
+    requires_prior_rule: tennis_favorite_slide
+    pregame:
+      side: favorite
+      max_odds: -500
+    trigger:
+      min_odds: -110
+      exclusive_min: true
+      max_odds: 200
+    invalidate_if: {}
+    max_bets_per_game: 3
 
   - id: nhl_favorite_trails_by_one
     summary: "Favorite opened at -170 or stronger. Bet it when the underdog leads 1-0 or 2-1, unless it's the last 6 minutes of the 3rd period or overtime."   # plain-English version for the results page

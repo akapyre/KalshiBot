@@ -215,3 +215,10 @@ def test_no_first_half_line_outside_soccer(provider):
     provider.fetch_events = lambda sport: [event(-150, +130, started=True, live=True)]
     [snap] = provider.list_live_games("nfl")
     assert snap.first_half_favorite_odds is None
+
+
+def test_soccer_match_minute_from_clock():
+    from kalshibot.odds_providers.sportsgameodds import _parse_match_minute
+    assert _parse_match_minute({"clock": "89"}) == 89
+    assert _parse_match_minute({"clock": "45+2"}) == 45
+    assert _parse_match_minute({}) is None

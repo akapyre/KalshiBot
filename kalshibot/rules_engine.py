@@ -39,6 +39,12 @@ class Rule:
     # own YES ask being within lo..hi cents, not on sportsbook odds -- the
     # backtest found the edge in Kalshi's price, which books may not share.
     kalshi_band: tuple[int, int] | None = None
+    # Dollars this rule bets; None = the file-wide stake_usd.
+    stake_usd: float | None = None
+    # Soccer: bet only while the favorite is level or ahead...
+    trigger_not_trailing: bool = False
+    # ...and before this match minute (unknown minute = no bet).
+    trigger_before_minute: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Rule":
@@ -67,6 +73,9 @@ class Rule:
             market=str(d.get("market", "game")),
             enabled=bool(d.get("enabled", True)),
             kalshi_band=tuple(trigger["kalshi_cents"]) if trigger.get("kalshi_cents") else None,
+            stake_usd=float(d["stake_usd"]) if d.get("stake_usd") is not None else None,
+            trigger_not_trailing=bool(trigger.get("favorite_not_trailing", False)),
+            trigger_before_minute=trigger.get("before_minute"),
         )
 
 
@@ -138,6 +147,13 @@ def _game_state_ok(rule: Rule, snapshot: GameSnapshot) -> bool:
             return False
     if rule.trigger_scores is not None:
         if _favorite_and_underdog_score(snapshot) not in rule.trigger_scores:
+            return False
+    if rule.trigger_not_trailing:
+        scores = _favorite_and_underdog_score(snapshot)
+        if scores is None or scores[0] < scores[1]:
+            return False
+    if rule.trigger_before_minute is not None:
+        if snapshot.match_minute is None or snapshot.match_minute >= rule.trigger_before_minute:
             return False
     return True
 
@@ -261,7 +277,7 @@ class RulesEngine:
                     sport=snapshot.sport,
                     team=snapshot.favorite_team,
                     live_odds=_rule_odds(rule, snapshot),
-                    stake_usd=self._stake_usd,
+                    stake_usd=rule.stake_usd if rule.stake_usd is not None else self._stake_usd,
                     market=rule.market,
                     pregame_odds=snapshot.pregame_favorite_odds,
                     game=f"{snapshot.away_team} @ {snapshot.home_team}",

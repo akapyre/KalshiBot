@@ -27,6 +27,7 @@ class GameSnapshot:
     # game-state fields, only populated where the sport/rule needs them
     period: int | None = None            # e.g. NFL quarter, MLB inning, NHL period; None for OT/unknown
     seconds_remaining: int | None = None  # game clock left in the current period, if known
+    match_minute: int | None = None       # soccer: minutes played (the feed's "clock": "34"), if known
     home_score: int | None = None
     away_score: int | None = None
     past_halftime: bool | None = None

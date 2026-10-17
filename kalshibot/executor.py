@@ -119,7 +119,7 @@ class Executor:
             )
             return
 
-        stake = self._risk.stake_usd()
+        stake = decision.stake_usd   # the rule's own stake, else the file-wide one
         price = yes_price_cents if side == "yes" else 100 - yes_price_cents
         # Whole contracts that fit inside the stake -- never spend more than it.
         count = int((stake * 100) // price) if price > 0 else 0

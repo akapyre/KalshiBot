@@ -279,6 +279,7 @@ class SportsGameOddsProvider:
                 is_final=bool(status.get("completed", False) or status.get("finalized", False)),
                 period=period,
                 seconds_remaining=_parse_clock_seconds(status),
+                match_minute=_parse_match_minute(status) if sport == "soccer" else None,
                 home_score=home.get("score"),
                 away_score=away.get("score"),
                 past_halftime=past_halftime,
@@ -367,6 +368,14 @@ def _parse_period_number(period_id: str) -> int | None:
 
 
 _CLOCK_RE = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+def _parse_match_minute(status: dict[str, Any]) -> int | None:
+    """Soccer minutes played. A live match's status carries `"clock": "89"`
+    (seen 2026-10-16, Puebla @ Club Tijuana); stoppage time like "45+2"
+    reads as 45. None when absent, e.g. at halftime."""
+    match = re.match(r"\s*(\d{1,3})", str(status.get("clock") or ""))
+    return int(match.group(1)) if match else None
 
 
 def _parse_clock_seconds(status: dict[str, Any]) -> int | None:
