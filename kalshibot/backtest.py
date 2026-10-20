@@ -58,7 +58,7 @@ CACHE = Path("state/backtest_cache")
 STAKE_CENTS = 2500
 SAMPLE_EVERY_S = 300          # the bot polls every 5 minutes
 # How long after the start to follow the price, by sport.
-GAME_LENGTH_MIN = {"nfl": 240, "cfb": 270, "mlb": 240, "nhl": 210, "soccer": 150, "tennis": 240}
+GAME_LENGTH_MIN = {"nfl": 240, "cfb": 270, "mlb": 240, "nhl": 210, "nba": 150, "soccer": 150, "tennis": 240}
 # Estimated minute each quarter starts (NFL games ~3h, college ~3h20m).
 QUARTER_STARTS = {"nfl": [0, 45, 110, 145], "cfb": [0, 50, 125, 165]}
 MLB_MIN_PER_INNING = 18
@@ -411,7 +411,7 @@ def inspect(count: int = 4) -> None:
     if not path.exists():
         print("Run a backtest first.")
         return
-    rows = sorted(csv.DictReader(path.open()), key=lambda r: r["start"])
+    rows = sorted(csv.DictReader(path.open(encoding="utf-8")), key=lambda r: r["start"])
     seen: set[str] = set()
     for r in rows:
         ticker = r.get("ticker", "")
@@ -454,7 +454,7 @@ def main() -> None:
         trades += run(sport, args.days)
     if trades:
         out = Path("state/backtest_trades.csv")
-        with out.open("w", newline="") as f:
+        with out.open("w", newline="", encoding="utf-8") as f:   # team names like "Gençlerbirliği"
             writer = csv.DictWriter(f, fieldnames=list(Trade.__dataclass_fields__))
             writer.writeheader()
             writer.writerows(t.__dict__ for t in trades)

@@ -38,6 +38,7 @@ logger = logging.getLogger("kalshibot.matching")
 # (tennis: men's and women's tours are separate).
 SERIES_BY_SPORT: dict[Sport, list[str]] = {
     "nhl": ["KXNHLGAME"],      # confirmed 2026-09-29
+    "nba": ["KXNBAGAME"],      # confirmed 2026-10-20 ("Golden State" / "Denver", exchange_index 3)
     "mlb": ["KXMLBGAME"],      # confirmed 2026-09-29 (tickers add a start time: 26SEP292000)
     "nfl": ["KXNFLGAME"],      # confirmed 2026-10-04 (Detroit order filled)
     "cfb": ["KXNCAAFGAME"],    # seen in the account's settlements 2026-10-04

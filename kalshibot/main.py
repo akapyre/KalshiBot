@@ -31,7 +31,7 @@ from .state import BetStateStore
 
 # Tennis (ATP/WTA) came with the upgraded SportsGameOdds plan; its events
 # and Kalshi's KXATPMATCH/KXWTAMATCH markets were checked 2026-10-07.
-SPORTS: list[Sport] = ["soccer", "nfl", "mlb", "cfb", "nhl", "tennis"]
+SPORTS: list[Sport] = ["soccer", "nfl", "mlb", "cfb", "nhl", "nba", "tennis"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,7 +95,7 @@ def settle_finished_bets(kalshi: KalshiClient, ledger: BetLedger) -> None:
             notify.send(f"Void/refunded: {settled['team']}", line, tags=["leftwards_arrow_with_hook"])
 
 
-PERIOD_NAMES = {"nfl": "Q", "cfb": "Q", "nhl": "P", "mlb": "Inning ", "tennis": "Set ", "soccer": "Half "}
+PERIOD_NAMES = {"nfl": "Q", "cfb": "Q", "nhl": "P", "nba": "Q", "mlb": "Inning ", "tennis": "Set ", "soccer": "Half "}
 
 
 def period_text(snapshot) -> str:

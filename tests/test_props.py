@@ -1,3 +1,4 @@
+import dataclasses
 from kalshibot.main import run_props
 from kalshibot.odds_providers.base import GameSnapshot
 from kalshibot.odds_providers.sportsgameodds import _player_names
@@ -145,7 +146,8 @@ def test_run_props_bets_once_per_player_and_caps_per_game(tmp_path):
 
 def test_prop_rule_is_loaded_apart_from_game_rules():
     assert [(r.id, r.bet_line, r.stats) for r in load_prop_rules()] == [
-        ("nhl_prop_favorite_drift", "same", ["points", "assists", "goals"])]
+        ("nhl_prop_favorite_drift", "same", ["points", "assists", "goals"]),
+        ("nba_prop_favorite_drift", "same", ["points", "rebounds", "assists", "threes"])]
     assert "nhl_prop_favorite_drift" not in [r.id for r in load_rules()[0]]
 
 
@@ -231,3 +233,23 @@ def test_two_goal_series_for_one_player_use_one(tmp_path):
     ladders = PropWatcher.for_game([a, b, b2], game())
     assert {line: pm.market["event_ticker"] for line, pm in ladders[("goals", "Connor McDavid")].items()} == {
         1: "KXNHLANYGOAL-26OCT15EDMVAN", 2: "KXNHLANYGOAL-26OCT15EDMVAN"}
+
+
+def test_nba_prop_rule_uses_the_named_nba_series_and_bets_plus_money(tmp_path):
+    rule = next(r for r in load_prop_rules() if r.id == "nba_prop_favorite_drift")
+    assert rule.sport == "nba" and rule.pregame_min_cents == 67 and rule.band == (36, 50)
+
+    w = PropWatcher(kalshi=None, rules=[rule], store=PropPregameStore(tmp_path / "p.json"))
+    assert sorted(t for _, t in w.series()) == ["KXNBA3PT", "KXNBAAST", "KXNBAPTS", "KXNBAREB"]
+
+    snap = dataclasses.replace(game(players=("Jayson Tatum", "Jaylen Brown")), sport="nba",
+                               home_team="Detroit Pistons", away_team="Boston Celtics")
+    ev = "KXNBAPTS-26OCT15BOSDET"
+    w._store.set_many({f"{ev}-TATUM20": 70, f"{ev}-TATUM25": 52})
+    for ask, bets in ((55, False), (50, True), (36, True), (35, False)):   # -122 / +100 / +178 / +186
+        markets = [mkt("Jayson Tatum", 20, ask=ask, event=ev, stat="points"),
+                   mkt("Jayson Tatum", 25, ask=20, event=ev, stat="points")]
+        found = w.candidates(markets, snap)
+        assert bool(found) == bets, ask
+        if bets:
+            assert found[0].label == "Jayson Tatum 20+ points"

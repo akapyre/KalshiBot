@@ -58,6 +58,14 @@ def paused_rules_engine(tmp_path):
 
 
 @pytest.fixture
+def all_rules_engine(tmp_path):
+    """The live rule set with every paused rule switched back on."""
+    rules, stake = load_rules(RULES_PATH)
+    store = BetStateStore(tmp_path / "bets.json")
+    return RulesEngine([dataclasses.replace(r, enabled=True) for r in rules], stake, store), store
+
+
+@pytest.fixture
 def engine(tmp_path):
     rules, stake = load_rules(RULES_PATH)
     store = BetStateStore(tmp_path / "bets.json")
@@ -83,7 +91,8 @@ def test_soccer_heavy_favorite_skips_below_band(engine):
     assert eng.evaluate(snap) == []
 
 
-def test_soccer_moderate_favorite_requires_strictly_past_115(engine):
+def test_soccer_moderate_favorite_requires_strictly_past_115(all_rules_engine):
+    engine = all_rules_engine
     eng, _ = engine
     snap_at_115 = make_snapshot(pregame_favorite_odds=-170, live_favorite_odds=115)
     assert eng.evaluate(snap_at_115) == []
@@ -450,12 +459,14 @@ def test_kalshi_priced_rules_arm_on_game_state_and_fire_on_kalshi_price(engine):
     assert eng.kalshi_price_problem("cfb_big_favorite_near_even", 44) is not None
 
 
-def test_cfb_late_slide_only_in_the_4th_quarter(engine):
+def test_cfb_late_slide_only_in_the_4th_quarter(all_rules_engine):
+    engine = all_rules_engine
     eng, _ = engine
     q3 = make_snapshot(sport="cfb", pregame_favorite_odds=-220, live_favorite_odds=120, period=3)
     q4 = make_snapshot(sport="cfb", pregame_favorite_odds=-220, live_favorite_odds=120, period=4)
-    assert eng.evaluate(q3) == []
-    assert [d.rule_id for d in eng.evaluate(q4)] == ["cfb_late_favorite_slide"]
+    late = lambda snap: [d.rule_id for d in eng.evaluate(snap) if d.rule_id == "cfb_late_favorite_slide"]
+    assert late(q3) == []
+    assert late(q4) == ["cfb_late_favorite_slide"]
 
 
 def test_tennis_trial_needs_a_minus_500_favorite(engine):
@@ -518,3 +529,18 @@ def test_tennis_favorite_slide_limits(engine):
     assert _fired(eng.evaluate(weaker)) == {}                                                # opened weaker than -500
     # the re-bet never comes first
     assert "tennis_favorite_slide_rebet" not in _fired(eng.evaluate(dataclasses.replace(snap, live_favorite_odds=100)))
+
+
+def test_nba_favorite_drift_bets_plus_100_to_plus_180(engine):
+    eng, _ = engine
+    snap = make_snapshot(sport="nba", pregame_favorite_odds=-220)
+    for live, bets in ((-110, False), (100, True), (180, True), (185, False)):
+        fired = [d.rule_id for d in eng.evaluate(dataclasses.replace(snap, live_favorite_odds=live))]
+        assert ("nba_favorite_drift" in fired) == bets, live
+    assert eng.evaluate(make_snapshot(sport="nba", pregame_favorite_odds=-180, live_favorite_odds=120)) == []
+
+
+def test_paused_soccer_moderate_and_cfb_late_slide(engine):
+    eng, _ = engine
+    assert not eng.rule("soccer_moderate_favorite").enabled
+    assert not eng.rule("cfb_late_favorite_slide").enabled

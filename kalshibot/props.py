@@ -59,6 +59,13 @@ STAT_SERIES: dict[str, re.Pattern] = {
     "goals": re.compile(r"goal"),
     "shots": re.compile(r"shot|sog"),   # none on Kalshi as of 2026-10-14
 }
+# NBA prop series, named outright: Kalshi lists 250+ KXNBA series, and
+# keyword matching would also catch "Points Protected", "Game Points
+# Leader", "Head-to-Head Points" and the like. Checked 2026-10-20: markets
+# read "Neemias Queta: 20+", event KXNBAPTS-26OCT20BOSDET, exchange_index 3.
+FIXED_PROP_SERIES: dict[str, dict[str, str]] = {
+    "nba": {"points": "KXNBAPTS", "rebounds": "KXNBAREB", "assists": "KXNBAAST", "threes": "KXNBA3PT"},
+}
 # Not one game's player stat: season-long (KXNHLSEASONPPTS), playoff,
 # series, first-10-minutes / first-goal, team and period markets.
 SERIES_SKIP = re.compile(r"team|total|spread|period|1st|first|power|blocked|game$|wins|goalie|save|season"
@@ -209,7 +216,8 @@ class PropBet:
         return f"{self.snapshot.game_id}|{self.stat}|{_normalize(self.player)}"
 
 
-STAT_LABELS = {"points": "points", "assists": "assists", "goals": "goals", "shots": "shots on goal"}
+STAT_LABELS = {"points": "points", "assists": "assists", "goals": "goals", "shots": "shots on goal",
+               "rebounds": "rebounds", "threes": "threes"}
 
 
 class PropWatcher:
@@ -220,24 +228,29 @@ class PropWatcher:
         self._series: list[tuple[str, str]] | None = None   # (stat, series ticker)
         self._warned: set[str] = set()
 
-    def stats(self) -> set[str]:
-        return {s for r in self.rules for s in r.stats}
+    def stats(self, sport: str | None = None) -> set[str]:
+        return {s for r in self.rules if sport in (None, r.sport) for s in r.stats}
 
     def series(self) -> list[tuple[str, str]]:
-        """(stat, series ticker) for each Kalshi NHL player-prop series. Looked
-        up once per run; logged so it can be checked."""
+        """(stat, series ticker) for each Kalshi player-prop series the rules
+        use: NBA's are named in FIXED_PROP_SERIES, NHL's looked up by name.
+        Looked up once per run; logged so it can be checked."""
         if self._series is None:
             found = []
-            for s in self._kalshi.list_series(category="Sports").get("series", []):
-                ticker = str(s.get("ticker") or "")
-                text = (ticker + " " + str(s.get("title") or "")).lower()
-                if not ticker.upper().startswith("KXNHL") or SERIES_SKIP.search(text):
-                    continue
-                for stat, pattern in STAT_SERIES.items():
-                    if stat in self.stats() and pattern.search(text):
-                        found.append((stat, ticker))
-                        break
-            logger.info("Kalshi NHL prop series: %s", ", ".join(f"{t} ({s})" for s, t in found) or "none found")
+            sports = {r.sport for r in self.rules}
+            for sport in sports & FIXED_PROP_SERIES.keys():
+                found += [(stat, t) for stat, t in FIXED_PROP_SERIES[sport].items() if stat in self.stats(sport)]
+            if "nhl" in sports:
+                for s in self._kalshi.list_series(category="Sports").get("series", []):
+                    ticker = str(s.get("ticker") or "")
+                    text = (ticker + " " + str(s.get("title") or "")).lower()
+                    if not ticker.upper().startswith("KXNHL") or SERIES_SKIP.search(text):
+                        continue
+                    for stat, pattern in STAT_SERIES.items():
+                        if stat in self.stats("nhl") and pattern.search(text):
+                            found.append((stat, ticker))
+                            break
+            logger.info("Kalshi prop series: %s", ", ".join(f"{t} ({s})" for s, t in found) or "none found")
             self._series = found
         return self._series
 

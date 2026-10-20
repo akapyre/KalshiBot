@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 SPORT_LABELS = {
-    "nfl": "NFL", "cfb": "College football", "mlb": "MLB", "nhl": "NHL",
+    "nfl": "NFL", "cfb": "College football", "mlb": "MLB", "nhl": "NHL", "nba": "NBA",
     "soccer": "Soccer", "tennis": "Tennis",
 }
 

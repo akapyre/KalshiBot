@@ -75,6 +75,7 @@ def check_kalshi() -> None:
 
 SERIES_KEYWORDS = {
     "nhl": ["nhl", "hockey"],
+    "nba": ["nba", "basketball"],
     "nfl": ["nfl", "profootball"],
     "mlb": ["mlb", "baseball"],
     "cfb": ["ncaaf", "collegefootball"],

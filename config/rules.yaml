@@ -122,6 +122,7 @@ rules:
     max_bets_per_game: 3       # so the two first-half rules on the same match don't block it
 
   - id: soccer_moderate_favorite
+    enabled: false             # paused 2026-10-20: backtest lost 16.8% over 167 bets (live was 4-3, +$90) -- set to true to turn back on
     summary: "Favorite opened between -150 and -199. Bet it when its live odds move past +115; not if it's down a goal after halftime, or past +200."   # plain-English version for the results page
     sport: soccer
     description: >
@@ -326,6 +327,7 @@ rules:
     max_bets_per_game: 2       # can stack with cfb_late_favorite_slide
 
   - id: cfb_late_favorite_slide
+    enabled: false             # paused 2026-10-20 after going 1-5 (-$88) live -- set to true to turn back on
     summary: "Favorite opened at -200 or stronger. In the 4th quarter, bet it when Kalshi's price is 40-49¢ (+104 to +150)."
     sport: cfb
     description: >
@@ -432,6 +434,39 @@ rules:
     bet_line: same
     pregame: {max_odds: -200}
     trigger: {kalshi_cents: [30, 58]}
+    max_bets_per_game: 2
+
+  - id: nba_favorite_drift
+    summary: "Favorite opened at -200 or stronger. Bet it when its live odds drift to plus money: +100 to +180, not past +180."
+    sport: nba
+    description: >
+      Added 2026-10-20. Pregame favorite at -200 or steeper; bet once its
+      live price is +100 through +180. Skipped once it has gone past +180.
+      NBA markets are on Kalshi exchange 3 (with tennis and MLB).
+    pregame:
+      side: favorite
+      max_odds: -200
+    trigger:
+      min_odds: 100
+      max_odds: 180
+    invalidate_if:
+      odds_beyond: 180
+    max_bets_per_game: 1
+
+  - id: nba_prop_favorite_drift
+    kind: player_prop
+    summary: "Player is -200 or stronger at tip-off to reach a points, rebounds, assists or threes line. Bet that same line once Kalshi prices it at plus money, +100 to +180 (36-50¢). Max 2 per game."
+    description: >
+      Added 2026-10-20, the NBA version of nhl_prop_favorite_drift. "-200 to
+      hit" = the highest line on the player's Kalshi ladder priced 67¢
+      (-200) or more at tip-off (e.g. "Jayson Tatum: 20+"). The bet = YES
+      on that same line when its ask is 36-50¢ (+178 to +100). One bet per
+      player per stat; at most 2 prop bets per game, like the NHL rule.
+    sport: nba
+    stats: [points, rebounds, assists, threes]
+    bet_line: same
+    pregame: {max_odds: -200}
+    trigger: {kalshi_cents: [36, 50]}
     max_bets_per_game: 2
 
   - id: mlb_favorite_fade

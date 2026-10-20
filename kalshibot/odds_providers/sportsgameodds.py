@@ -96,6 +96,7 @@ LEAGUE_IDS: dict[Sport, list[str]] = {
     "mlb": ["MLB"],  # confirmed present in GET /v2/leagues
     "cfb": ["NCAAF"],  # confirmed present in GET /v2/leagues (early exploration, not the MLB/NFL session)
     "nhl": ["NHL"],  # confirmed present in GET /v2/leagues
+    "nba": ["NBA"],  # confirmed present in GET /v2/leagues 2026-10-20
 }
 
 
