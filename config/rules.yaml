@@ -98,8 +98,9 @@
 #      tennis_favorite_slide rules bet $15 each.
 #
 # MULTI-BET: each rule bets at most once per game. Rules that may stack on
-# the same game: the three NFL rules (and CFB's); soccer's two first-half
-# rules with soccer_heavy_favorite; the tennis trial with the two $15
+# the same game: the three NFL rules (and CFB's); ONE soccer first-half bet
+# (either first-half rule, whichever triggers first -- never both, since
+# 2026-10-20) with soccer_heavy_favorite; the tennis trial with the two $15
 # tennis_favorite_slide rules (up to $55 on one match).
 
 stake_usd: 25
@@ -159,7 +160,7 @@ rules:
       quarter: 1                 # first half only (not at halftime)
       scores: [[0, 0]]           # still 0-0
     invalidate_if: {}
-    max_bets_per_game: 3       # can bet alongside soccer_heavy_favorite and soccer_first_half_level_early
+    max_bets_per_game: 3       # can bet alongside soccer_heavy_favorite; only one first-half rule bets per game
 
   - id: soccer_first_half_level_early
     summary: "$10. Favorite opened at -200 or stronger. While it's tied or winning before the 35th minute, bet it to win the first half once its first-half odds reach +100 or longer."
@@ -171,8 +172,9 @@ rules:
       bigger pregame favorite, bet on them to lead at halftime when their
       first-half odds go to +100 while tied or winning, not from the 35th
       minute on"). $10 a bet. No upper odds limit -- their rule names none.
-      Runs alongside soccer_first_half_favorite (your call), so a -300
-      favorite can get both first-half bets.
+      Only one first-half bet per game (2026-10-20): if
+      soccer_first_half_favorite already bet this match, this rule skips it,
+      and vice versa.
     pregame:
       side: favorite
       max_odds: -200

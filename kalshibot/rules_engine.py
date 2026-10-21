@@ -239,6 +239,11 @@ class RulesEngine:
         rule = next((r for r in self._rules if r.id == rule_id), None)
         return kalshi_price_problem(rule, ask_cents) if rule else None
 
+    def _first_half_taken(self, fired, decisions: list[BetDecision]) -> bool:
+        if any(d.market == "first_half" for d in decisions):
+            return True
+        return any(r.market == "first_half" for r in self._rules if r.id in fired)
+
     def watched_rules(self, snapshot: GameSnapshot) -> list[str]:
         """Rules whose pregame condition this game meets -- the games worth
         showing in the log every cycle, whether or not they trigger."""
@@ -264,6 +269,8 @@ class RulesEngine:
                 continue  # already at (or past) this rule's total-bets ceiling
             if rule.requires_prior_rule and rule.requires_prior_rule not in fired:
                 continue  # e.g. NFL Q4 re-entry needs nfl_favorite_fade to have fired first
+            if rule.market == "first_half" and self._first_half_taken(fired, decisions):
+                continue  # one first-half bet per game, whichever first-half rule gets there first
 
             if _invalidated(rule, snapshot):
                 continue

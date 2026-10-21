@@ -544,3 +544,22 @@ def test_paused_soccer_moderate_and_cfb_late_slide(engine):
     eng, _ = engine
     assert not eng.rule("soccer_moderate_favorite").enabled
     assert not eng.rule("cfb_late_favorite_slide").enabled
+
+
+def test_only_one_first_half_bet_per_game(engine):
+    eng, store = engine
+    # -320 favorite, 0-0 at minute 20, first-half odds +115: inside both
+    # first-half rules' bands (Chivas vs Necaxa got both on 2026-10-20).
+    snap = first_half(first_half_favorite_odds=115, match_minute=20)
+    first_half_bets = [d.rule_id for d in eng.evaluate(snap) if d.market == "first_half"]
+    assert first_half_bets == ["soccer_first_half_favorite"]
+
+    store.record("g1", "soccer_first_half_favorite")
+    assert [d for d in eng.evaluate(snap) if d.market == "first_half"] == []
+
+
+def test_first_half_level_early_blocks_the_other_first_half_rule(engine):
+    eng, store = engine
+    store.record("g1", "soccer_first_half_level_early")
+    snap = first_half(first_half_favorite_odds=-120)
+    assert [d for d in eng.evaluate(snap) if d.market == "first_half"] == []
