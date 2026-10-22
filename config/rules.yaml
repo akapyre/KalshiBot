@@ -107,6 +107,7 @@ stake_usd: 25
 
 rules:
   - id: soccer_heavy_favorite
+    enabled: false             # paused 2026-10-21: replay lost 4.6% on older games, 21.6% on newer (live 1-5, -$94) -- set to true to turn back on
     summary: "Favorite opened at -200 or stronger. Bet it when its live odds drift to +100 to +200; not past +200."   # plain-English version for the results page
     sport: soccer
     description: >
@@ -314,6 +315,7 @@ rules:
     max_bets_per_game: 3
 
   - id: cfb_big_favorite_near_even
+    enabled: false             # paused 2026-10-21: +23% on the games it was picked from, -6.6% on newer games (live 6-7, -$78) -- set to true to turn back on
     summary: "Favorite opened at -400 or stronger. Bet it when Kalshi's price falls to 45-59¢ (-144 to +122), any time."
     sport: cfb
     description: >

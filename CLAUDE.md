@@ -5,7 +5,7 @@ Automated Kalshi sports bot that bets with REAL MONEY. Flat $25 per bet
 plain-English `summary`. Start with README.md.
 
 ## Running it
-- `./start.sh` = pull, install, run live (`python -m kalshibot.main --interval 300 --live`).
+- `./start.sh` = pull, install, run live (`python -m kalshibot.main --interval 120 --live`).
   `./start.sh --dry` logs bets without placing them.
 - Run the bot on ONE computer at a time (Windows PC or MacBook), or bets
   can be placed twice. Before starting it, make sure it isn't already

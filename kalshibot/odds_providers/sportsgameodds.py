@@ -97,6 +97,7 @@ LEAGUE_IDS: dict[Sport, list[str]] = {
     "cfb": ["NCAAF"],  # confirmed present in GET /v2/leagues (early exploration, not the MLB/NFL session)
     "nhl": ["NHL"],  # confirmed present in GET /v2/leagues
     "nba": ["NBA"],  # confirmed present in GET /v2/leagues 2026-10-20
+    "cbb": ["NCAAB"],  # men's college basketball; research only so far (not in main.SPORTS)
 }
 
 
@@ -287,6 +288,7 @@ class SportsGameOddsProvider:
                 first_half_favorite_odds=first_half.get(fav_side),
                 player_names=_player_names(event),
                 started=_has_started(status),
+                **_fair_fields(sport, event.get("odds", {}), bool(status.get("live", False))),
             )
         except (KeyError, ValueError, TypeError):
             logger.warning(
@@ -320,6 +322,50 @@ def _game_moneyline(sport: str, odds: dict[str, Any]) -> tuple[int | None, int |
         if len(current) == 2:
             return current["home"], current["away"], close
     return None, None, {}
+
+
+# A sharp price older than this is ignored (live prices move by the second).
+FAIR_MAX_AGE_S = {"live": 180, "pregame": 1800}
+
+
+def _win_chance(american: float) -> float:
+    return 100 / (american + 100) if american > 0 else -american / (-american + 100)
+
+
+def _age_s(stamp: str | None) -> float:
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return float("inf")
+    return (datetime.now(timezone.utc) - when).total_seconds()
+
+
+def _fair_fields(sport: str, odds: dict[str, Any], live: bool) -> dict[str, Any]:
+    """{"fair_win_chance": {"home": p, "away": p}, "fair_source": ...} for the
+    game line: Pinnacle with its margin removed (every outcome of the line,
+    so a soccer draw takes its share), else SportsGameOdds' own de-vigged
+    consensus ("fairOdds"). Empty when neither is fresh and available."""
+    max_age = FAIR_MAX_AGE_S["live" if live else "pregame"]
+    for bet_type, period in MONEYLINES.get(sport, DEFAULT_MONEYLINES):
+        line = {o.get("sideID"): o for o in odds.values()
+                if o.get("statID") == "points" and o.get("periodID") == period and o.get("betTypeID") == bet_type}
+        if "home" not in line or "away" not in line:
+            continue
+        sides = ["home", "away"] + (["draw"] if bet_type == "ml3way" else [])
+        if any(s not in line for s in sides):
+            continue
+        try:
+            pin = [(line[s].get("byBookmaker") or {}).get("pinnacle") or {} for s in sides]
+            if all(b.get("available") and b.get("odds") and _age_s(b.get("lastUpdatedAt")) <= max_age for b in pin):
+                raw = [_win_chance(float(b["odds"])) for b in pin]
+                return {"fair_win_chance": {s: r / sum(raw) for s, r in zip(sides[:2], raw)}, "fair_source": "pinnacle"}
+            if all(line[s].get("fairOddsAvailable") and line[s].get("fairOdds") for s in sides):
+                raw = [_win_chance(float(line[s]["fairOdds"])) for s in sides]
+                return {"fair_win_chance": {s: r / sum(raw) for s, r in zip(sides[:2], raw)}, "fair_source": "consensus"}
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+        return {}
+    return {}
 
 
 def _first_half_moneyline(odds: dict[str, Any]) -> dict[str, int]:

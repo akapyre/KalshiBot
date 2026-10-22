@@ -8,6 +8,7 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
        python -m kalshibot.diagnose leagues       (every SportsGameOdds league on your plan)
        python -m kalshibot.diagnose notify        (test phone notifications)
        python -m kalshibot.diagnose site          (build and publish the results page now)
+       python -m kalshibot.diagnose paper         (paper rules' record -- tracked, never ordered)
        python -m kalshibot.diagnose record        (the bot's wins and losses; add "import" for past bets,
                                                   or "reset" to start over at 0-0 -- stop the bot first)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
@@ -285,6 +286,22 @@ def check_record(do_import: bool) -> None:
     print("\n" + record_line(ledger.summary()))
 
 
+def check_paper() -> None:
+    """The paper rules' record (config/paper_rules.yaml): tracked, never ordered."""
+    from .paper import PaperBook
+    book = PaperBook()
+    bets = book.all_bets()
+    if not bets:
+        print("No paper bets yet (config/paper_rules.yaml).")
+        return
+    for b in bets:
+        pnl = "" if b["pnl"] is None else f"{b['pnl']:+.2f}"
+        print(f"  {b['placed_at'][:16]}  {b['status'].upper():5} {pnl:>8}  {b['label']} at {b['price_cents']}c "
+              f"({b['game']}, inning {b['inning']}, {b['rule']})")
+    print("
+Paper record (no money): " + book.record_line())
+
+
 def check_props() -> None:
     """What the NHL player-prop rule finds: Kalshi's NHL series, sample
     prop markets as Kalshi sends them, and each game's matched players."""
@@ -381,6 +398,9 @@ def main() -> None:
         return
     if sport == "props":
         check_props()
+        return
+    if sport == "paper":
+        check_paper()
         return
     if sport == "markets":
         target = sys.argv[2] if len(sys.argv) > 2 else "nhl"

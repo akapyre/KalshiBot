@@ -1,0 +1,38 @@
+# PAPER rules: the bot logs and tracks these as if it bet them, but NEVER
+# places an order. Record: state/paper_bets.json; check it with
+#   python -m kalshibot.diagnose paper
+# Run by kalshibot/paper.py, separate from the real-money rules in rules.yaml.
+
+stake_usd: 25   # pretend stake per bet, for the paper record only
+
+rules:
+  - id: mlb_underdog_runline
+    sport: mlb
+    summary: "Underdog takes an early lead (its win chance up 15+ points since first pitch, inning 5 or earlier). Bet it to win by 2.5+ runs when that line is 10-29¢ (+245 to +900). Paper only."
+    description: >
+      Added 2026-10-22 from the totals/spreads research: one bet per game,
+      YES on the underdog's run line ("<dog> wins by over 2.5 runs" or
+      more) at 10-29c, in the first half of the game, once the underdog's
+      win chance (from the sportsbooks' live odds) is up 15+ points from
+      pregame. Replay on 2025-26 MLB: older games +11% (573 bets), newer
+      games +26% (296 bets); the same bet with no underdog lead lost 2-3%.
+    # underdog's win chance up at least this many points since pregame
+    dog_gain_points: 15
+    max_inning: 5
+    kalshi_cents: [10, 29]
+    min_runs_over: 2.5    # the replay's bets were "over 2.5" / "over 3.5"; "over 1.5" had only 13 (and lost)
+
+  - id: ev_moneyline
+    kind: ev_moneyline
+    sports: [nba, nhl, nfl, cfb, mlb, soccer, tennis]
+    summary: "+EV line shopping: bet a team on Kalshi when its price plus Kalshi's fee is at least 3% better than the sharp fair price (Pinnacle with the vig removed, else the books' consensus). Pregame (within 3 hours of the start) and live. Paper only."
+    description: >
+      Added 2026-10-22 at the owner's suggestion (+EV betting / price
+      shopping). Kalshi's YES ask for each team vs its de-vigged sharp win
+      chance; expected return = (fair - price - fee) / price. One paper bet
+      per team per game per phase. Every comparison is logged to
+      state/ev_observations.jsonl, so the size and frequency of the gaps,
+      and whether bigger gaps win more, can be studied after a few weeks.
+    min_ev: 0.03
+    kalshi_cents: [10, 90]
+    pregame_hours: 3

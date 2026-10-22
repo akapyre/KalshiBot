@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-Sport = Literal["soccer", "tennis", "nfl", "mlb", "cfb", "nhl", "nba"]
+Sport = Literal["soccer", "tennis", "nfl", "mlb", "cfb", "nhl", "nba", "cbb"]
 
 
 @dataclass
@@ -36,6 +36,11 @@ class GameSnapshot:
     # Full names of the players listed for this game (player-prop rules)
     player_names: tuple[str, ...] = ()
     started: bool = False        # under way or over (pregame prices stop being saved)
+    # De-vigged win chances {"home": p, "away": p} (0-1) from a sharp book,
+    # for the +EV paper rule; None when no fresh sharp price. fair_source
+    # says where it came from ("pinnacle" or "consensus").
+    fair_win_chance: dict[str, float] | None = None
+    fair_source: str = ""
 
 
 class OddsProvider(Protocol):

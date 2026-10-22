@@ -72,8 +72,8 @@ def engine(tmp_path):
     return RulesEngine(rules, stake, store), store
 
 
-def test_soccer_heavy_favorite_triggers_in_band(engine):
-    eng, _ = engine
+def test_soccer_heavy_favorite_triggers_in_band(all_rules_engine):
+    eng, _ = all_rules_engine
     snap = make_snapshot(pregame_favorite_odds=-250, live_favorite_odds=150)
     decisions = eng.evaluate(snap)
     assert [d.rule_id for d in decisions] == ["soccer_heavy_favorite"]
@@ -202,8 +202,8 @@ def test_nfl_fourth_quarter_reentry_requires_prior_fire(unpaused_engine):
     assert [d.rule_id for d in decisions] == ["nfl_fourth_quarter_reentry"]
 
 
-def test_no_double_fire_of_same_rule(engine):
-    eng, store = engine
+def test_no_double_fire_of_same_rule(all_rules_engine):
+    eng, store = all_rules_engine
     snap = make_snapshot(pregame_favorite_odds=-250, live_favorite_odds=150)
     first = eng.evaluate(snap)
     assert len(first) == 1
@@ -406,8 +406,8 @@ def test_soccer_first_half_rule(engine, kw, fires):
         assert decisions[0].live_odds == first_half(**kw).first_half_favorite_odds
 
 
-def test_first_half_bet_does_not_block_the_full_match_rule(engine):
-    eng, store = engine
+def test_first_half_bet_does_not_block_the_full_match_rule(all_rules_engine):
+    eng, store = all_rules_engine
     store.record("g1", "soccer_first_half_favorite")
     # later the full-match line drifts to +150 -> soccer_heavy_favorite still bets
     snap = first_half(period=2, past_halftime=True, home_score=0, away_score=1, live_favorite_odds=150)
@@ -441,14 +441,21 @@ def test_cfb_fade_capped_at_plus_150(paused_rules_engine):
     assert fires(140) and not fires(160)
 
 
+def test_soccer_heavy_and_cfb_big_favorite_paused_2026_10_21(engine):
+    eng, _ = engine
+    assert eng.evaluate(make_snapshot(pregame_favorite_odds=-250, live_favorite_odds=150)) == []
+    assert eng.evaluate(make_snapshot(sport="cfb", pregame_favorite_odds=-450, live_favorite_odds=-900,
+                                      period=2)) == []
+
+
 def test_paused_rules_are_not_watched(engine):
     eng, _ = engine
     assert "nfl_moderate_favorite" not in eng.watched_rules(make_snapshot(sport="nfl", pregame_favorite_odds=-160))
 
 
 
-def test_kalshi_priced_rules_arm_on_game_state_and_fire_on_kalshi_price(engine):
-    eng, _ = engine
+def test_kalshi_priced_rules_arm_on_game_state_and_fire_on_kalshi_price(all_rules_engine):
+    eng, _ = all_rules_engine
     big = make_snapshot(sport="cfb", pregame_favorite_odds=-450, live_favorite_odds=-900, period=2)
     # Armed regardless of sportsbook odds (Kalshi's price decides) ...
     assert [d.rule_id for d in eng.evaluate(big)] == ["cfb_big_favorite_near_even"]

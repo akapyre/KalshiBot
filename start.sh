@@ -16,8 +16,8 @@ else
 fi
 pip install -q -r requirements.txt
 
-ARGS="--interval 300 --live"
-[ "$1" = "--dry" ] && ARGS="--interval 300"
+ARGS="--interval 120 --live"
+[ "$1" = "--dry" ] && ARGS="--interval 120"
 
 if command -v caffeinate >/dev/null 2>&1; then
   # macOS: stop idle sleep while the bot runs (closing the lid still sleeps).

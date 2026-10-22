@@ -42,6 +42,7 @@ SERIES_BY_SPORT: dict[Sport, list[str]] = {
     "mlb": ["KXMLBGAME"],      # confirmed 2026-09-29 (tickers add a start time: 26SEP292000)
     "nfl": ["KXNFLGAME"],      # confirmed 2026-10-04 (Detroit order filled)
     "cfb": ["KXNCAAFGAME"],    # seen in the account's settlements 2026-10-04
+    "cbb": ["KXNCAAMBGAME"],   # men's college basketball, in Kalshi's series list 2026-10-22
     # Confirmed 2026-10-07: one "<Full Name> wins" market per player, dated
     # event tickers, exchange_index 3.
     "tennis": ["KXATPMATCH", "KXWTAMATCH"],

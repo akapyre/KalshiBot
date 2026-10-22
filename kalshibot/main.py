@@ -25,6 +25,7 @@ from .matching import MarketMatcher
 from .odds_providers.base import Sport
 from .odds_providers.sportsgameodds import SportsGameOddsProvider
 from .props import PropWatcher, load_prop_rules
+from .paper import PaperTrader, load_paper_rules
 from .risk import RiskConfig, RiskManager
 from .rules_engine import BetDecision, RulesEngine, load_rules
 from .state import BetStateStore
@@ -206,6 +207,9 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     risk = RiskManager(RiskConfig.load())
     engine = RulesEngine(rules, stake_usd, state_store)
     prop_watcher = PropWatcher(kalshi, load_prop_rules())
+    paper_rules, paper_stake = load_paper_rules()
+    # Paper rules never place orders (kalshibot/paper.py has no executor).
+    paper = PaperTrader(kalshi, matcher, paper_rules, paper_stake)
     ledger = BetLedger()
     executor = Executor(kalshi, risk, state_store, dry_run=dry_run, ledger=ledger)
     # (game, rule, error code) already sent to the phone, so a failure that
@@ -361,6 +365,11 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                 run_props(prop_watcher, odds_provider, live_games, state_store, executor, kalshi, risk.stake_usd())
             except Exception:
                 logger.exception("Player-prop check failed this cycle")
+        if paper.rules:
+            try:
+                paper.run(live_games, [g for s in SPORTS for g in odds_provider.list_upcoming_games(s)])
+            except Exception:
+                logger.exception("Paper rule check failed this cycle")
         settle_finished_bets(kalshi, ledger)
         try:
             html = build_html(ledger.all_bets(), rule_texts, live_rows, mode=site_mode, stake_usd=risk.stake_usd())
