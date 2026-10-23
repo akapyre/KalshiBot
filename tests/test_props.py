@@ -149,6 +149,7 @@ def test_prop_rule_is_loaded_apart_from_game_rules():
         ("nhl_prop_favorite_drift", "same", ["points", "assists", "goals"]),
         ("nba_prop_heavy_favorite_even", "same", ["points", "rebounds", "assists", "threes"]),
         ("nba_prop_favorite_drift", "same", ["points", "rebounds", "assists", "threes"])]
+    assert load_prop_rules()[0].band == (39, 58)   # no hockey bet past +160 (2026-10-22)
     heavy, drift = load_prop_rules()[1:]
     assert (heavy.pregame_min_cents, heavy.band, heavy.stake_usd, heavy.max_period) == (75, (46, 50), 50, 2)
     assert (drift.stake_usd, drift.max_period) == (None, 2)

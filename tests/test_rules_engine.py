@@ -315,6 +315,14 @@ def test_nhl_uses_favorite_side_when_favorite_is_away(engine):
     assert [d.team for d in eng.evaluate(snap)] == ["Away FC"]
 
 
+def test_nhl_no_bet_past_plus_160_2026_10_22(engine):
+    eng, _ = engine
+    assert eng.evaluate(nhl(live_favorite_odds=160))
+    assert eng.evaluate(nhl(live_favorite_odds=165)) == []
+    assert eng.kalshi_price_problem("nhl_favorite_trails_by_one", 39) is None    # +156
+    assert eng.kalshi_price_problem("nhl_favorite_trails_by_one", 38) is not None  # +163
+
+
 def test_nhl_needs_minus_170_favorite(engine):
     eng, _ = engine
     assert eng.evaluate(nhl(pregame_favorite_odds=-165)) == []

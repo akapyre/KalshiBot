@@ -402,7 +402,7 @@ rules:
     max_bets_per_game: 3
 
   - id: nhl_favorite_trails_by_one
-    summary: "Favorite opened at -170 or stronger. Bet it when the underdog leads 1-0 or 2-1, unless it's the last 6 minutes of the 3rd period or overtime."   # plain-English version for the results page
+    summary: "Favorite opened at -170 or stronger. Bet it when the underdog leads 1-0 or 2-1, unless it's the last 6 minutes of the 3rd period or overtime, or its odds are past +160."   # plain-English version for the results page
     sport: nhl
     description: >
       Pregame favorite at -170 or steeper. Wager on the favorite when the
@@ -413,6 +413,7 @@ rules:
       max_odds: -170
     trigger:
       favorite_trailing_scores: [[0, 1], [1, 2]]   # [favorite goals, underdog goals]
+      max_odds: 160              # added 2026-10-22 by the owner: no hockey bet past +160 (Kalshi 39c+)
     invalidate_if:
       late_in_game:
         period: 3
@@ -421,7 +422,7 @@ rules:
 
   - id: nhl_prop_favorite_drift
     kind: player_prop   # player props -- run by kalshibot/props.py, not the game rules
-    summary: "Player is -200 or stronger at puck drop to get 1+ points, assists or goals. Bet that same line once Kalshi prices it at -140 or longer (30-58¢). Max 2 per game."
+    summary: "Player is -200 or stronger at puck drop to get 1+ points, assists or goals. Bet that same line once Kalshi prices it at -140 to +156 (39-58¢), never past +160. Max 2 per game."
     description: >
       Added 2026-10-15. All prices are Kalshi's. "-200 to hit" = the highest
       line on the player's Kalshi ladder priced 67¢ (-200) or more at puck
@@ -437,7 +438,7 @@ rules:
     stats: [points, assists, goals]
     bet_line: same
     pregame: {max_odds: -200}
-    trigger: {kalshi_cents: [30, 58]}
+    trigger: {kalshi_cents: [39, 58]}   # was 30-58; floor raised 2026-10-22 by the owner: no hockey bet past +160
     max_bets_per_game: 2
 
   - id: nba_favorite_drift
