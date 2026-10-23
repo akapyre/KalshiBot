@@ -317,3 +317,27 @@ def test_nba_props_stop_after_the_first_half(tmp_path):
     assert [b.rule.id for b in w.candidates(ms, nba_game(period=1))] == ["nba_prop_heavy_favorite_even"]
     assert w.candidates(ms, nba_game(period=3)) == []
     assert w.candidates(ms, nba_game(period=None)) == []   # halftime / unknown: no bet
+
+
+def test_paper_prop_rule_records_a_paper_bet_and_never_orders(tmp_path):
+    from kalshibot.paper import PaperBook
+    w, ms = nba_setup(tmp_path, ask=48)
+    w.rules = [dataclasses.replace(HEAVY, paper=True), dataclasses.replace(DRIFT, paper=True)]
+    store = BetStateStore(tmp_path / "bets.json")
+    ex = StakeExecutor(store)
+    book = PaperBook(tmp_path / "paper.json")
+    for _ in range(2):
+        run_props(w, FakeProvider(), [nba_game()], store, ex, FakeKalshi(), 25.0, book)
+    ms[0].market["yes_ask_dollars"] = "0.4000"    # into the -200 rule's range: same player and stat, no 2nd bet
+    run_props(w, FakeProvider(), [nba_game()], store, ex, FakeKalshi(), 25.0, book)
+    assert ex.orders == []
+    [bet] = book.all_bets()
+    assert (bet["rule"], bet["price_cents"], bet["contracts"], bet["status"]) == ("nba_prop_heavy_favorite_even", 48, 104, "open")
+    # without a paper book a paper rule is skipped, never sent to the executor
+    run_props(w, FakeProvider(), [nba_game()], BetStateStore(tmp_path / "b2.json"),
+              ex, FakeKalshi(), 25.0)
+    assert ex.orders == []
+
+
+def test_all_prop_rules_are_paper_only_2026_10_22():
+    assert all(r.paper for r in load_prop_rules())

@@ -421,6 +421,7 @@ rules:
     max_bets_per_game: 1
 
   - id: nhl_prop_favorite_drift
+    paper: true                # paper only (tracked, no real orders) since 2026-10-22, by the owner -- remove this line to bet real money again
     kind: player_prop   # player props -- run by kalshibot/props.py, not the game rules
     summary: "Player is -200 or stronger at puck drop to get 1+ points, assists or goals. Bet that same line once Kalshi prices it at -140 to +156 (39-58¢), never past +160. Max 2 per game."
     description: >
@@ -462,6 +463,7 @@ rules:
   # player and stat (a -300 line at 46-50¢ is also in the -200 rule's range),
   # the first rule listed places the one bet.
   - id: nba_prop_heavy_favorite_even
+    paper: true                # paper only (tracked, no real orders) since 2026-10-22, by the owner -- remove this line to bet real money again
     kind: player_prop
     summary: "Player is -300 or stronger at tip-off to reach a points, rebounds, assists or threes line. Bet that same line at double stake ($50) once Kalshi prices it +100 to +120 (46-50¢), first half only. Max 2 per game."
     description: >
@@ -481,6 +483,7 @@ rules:
     stake_usd: 50        # double the $25 unit
 
   - id: nba_prop_favorite_drift
+    paper: true                # paper only (tracked, no real orders) since 2026-10-22, by the owner -- remove this line to bet real money again
     kind: player_prop
     summary: "Player is -200 or stronger at tip-off to reach a points, rebounds, assists or threes line. Bet that same line once Kalshi prices it at plus money, +100 to +180 (36-50¢), first half only. Max 2 per game."
     description: >

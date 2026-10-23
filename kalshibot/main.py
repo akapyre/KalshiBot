@@ -25,7 +25,7 @@ from .matching import MarketMatcher
 from .odds_providers.base import Sport
 from .odds_providers.sportsgameodds import SportsGameOddsProvider
 from .props import PropWatcher, load_prop_rules
-from .paper import PaperTrader, load_paper_rules
+from .paper import PaperBook, PaperTrader, kalshi_fee, load_paper_rules
 from .risk import RiskConfig, RiskManager
 from .rules_engine import BetDecision, RulesEngine, load_rules
 from .state import BetStateStore
@@ -125,9 +125,12 @@ def resolve_cached(matcher: MarketMatcher, cache: dict, snapshot, market: str):
 
 
 def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store: BetStateStore,
-              executor: Executor, kalshi: KalshiClient, stake_usd: float) -> None:
+              executor: Executor, kalshi: KalshiClient, stake_usd: float,
+              paper_book: PaperBook | None = None) -> None:
     """One cycle of the player-prop rules: save puck-drop prices for
-    upcoming games, then bet any live player whose lower line is in range."""
+    upcoming games, then bet any live player whose lower line is in range.
+    A rule with `paper: true` goes to the paper record instead and never
+    reaches the executor."""
     sports = {r.sport for r in watcher.rules}
     upcoming = [g for sport in sports for g in odds_provider.list_upcoming_games(sport)]
     live = [g for g in live_games if g.sport in sports]
@@ -145,6 +148,23 @@ def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store
             # One bet per player and stat, whichever prop rule placed it.
             if any(state_store.has_fired(bet.key, r.id) for r in watcher.rules):
                 continue
+            if paper_book is not None and any(paper_book.has(bet.key, r.id) for r in watcher.rules):
+                continue
+            stake = rule.stake_usd if rule.stake_usd is not None else stake_usd
+            if rule.paper:
+                if paper_book is None or paper_book.count(f"{snapshot.game_id}|", rule.id) >= rule.max_bets_per_game:
+                    continue
+                contracts = int(stake * 100 // bet.ask)
+                paper_book.add(dict(
+                    rule=rule.id, game_id=bet.key, game=game, ticker=bet.bet.market["ticker"], label=bet.label,
+                    price_cents=bet.ask, contracts=contracts, cost=round(contracts * bet.ask / 100, 2),
+                    fee=kalshi_fee(contracts, bet.ask), inning=snapshot.period,
+                    score=f"{snapshot.away_score}-{snapshot.home_score}", pregame_cents=bet.main_pregame_cents,
+                    placed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), status="open", pnl=None))
+                logger.info("PAPER BET (no order placed): %s -- %s, %s at Kalshi %d¢ (%+d); %d+ was %d¢ (%+d) at tip",
+                            rule.id, game, bet.label, bet.ask, american_odds(bet.ask), bet.main_line,
+                            bet.main_pregame_cents, american_odds(bet.main_pregame_cents))
+                continue
             if state_store.count_fired(f"{snapshot.game_id}|", rule.id) >= rule.max_bets_per_game:
                 continue
             logger.info(
@@ -154,7 +174,7 @@ def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store
             )
             decision = BetDecision(
                 rule_id=rule.id, game_id=bet.key, sport=snapshot.sport, team=bet.label,
-                live_odds=american_odds(bet.ask), stake_usd=rule.stake_usd if rule.stake_usd is not None else stake_usd,
+                live_odds=american_odds(bet.ask), stake_usd=stake,
                 market="player_prop",
                 pregame_odds=american_odds(bet.main_pregame_cents), game=game,
             )
@@ -364,10 +384,11 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
 
         if prop_watcher.rules:
             try:
-                run_props(prop_watcher, odds_provider, live_games, state_store, executor, kalshi, risk.stake_usd())
+                run_props(prop_watcher, odds_provider, live_games, state_store, executor, kalshi, risk.stake_usd(),
+                          paper.book)
             except Exception:
                 logger.exception("Player-prop check failed this cycle")
-        if paper.rules:
+        if paper.rules or any(r.paper for r in prop_watcher.rules):
             try:
                 paper.run(live_games, [g for s in SPORTS for g in odds_provider.list_upcoming_games(s)])
             except Exception:

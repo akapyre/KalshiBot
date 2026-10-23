@@ -66,6 +66,7 @@ def load_rule_texts(path: str | Path = "config/rules.yaml") -> list[dict[str, st
     raw = yaml.safe_load(Path(path).read_text())
     return [
         {"id": r["id"], "sport": r["sport"], "enabled": r.get("enabled", True) is not False,
+         "paper": bool(r.get("paper", False)),
          "text": " ".join(str(r.get("summary") or r.get("description", "")).split())}
         for r in raw.get("rules", [])
     ]
@@ -244,7 +245,7 @@ def build_html(bets: list[dict[str, Any]], rules: list[dict[str, str]], live: li
             continue
         items = "".join(
             f'<li><div class="rule-name">{escape(rule_label(r["id"]))}'
-            f'{"" if r.get("enabled", True) else " " + _pill("Paused", "muted")}</div><p>{escape(r["text"])}</p></li>'
+            f'{" " + _pill("Paused", "muted") if not r.get("enabled", True) else " " + _pill("Paper only", "muted") if r.get("paper") else ""}</div><p>{escape(r["text"])}</p></li>'
             for r in mine
         )
         rule_cards.append(f'<div class="rule-card"><h3>{escape(sport_label(sport))}</h3><ul>{items}</ul></div>')

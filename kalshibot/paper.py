@@ -140,6 +140,10 @@ class PaperBook:
         with self._lock:
             return any(b["game_id"] == game_id and b["rule"] == rule_id for b in self._bets)
 
+    def count(self, game_prefix: str, rule_id: str) -> int:
+        with self._lock:
+            return sum(b["game_id"].startswith(game_prefix) and b["rule"] == rule_id for b in self._bets)
+
     def add(self, bet: dict[str, Any]) -> None:
         with self._lock:
             self._bets.append(bet)

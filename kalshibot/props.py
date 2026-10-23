@@ -86,6 +86,7 @@ class PropRule:
     # 2 = first half only (bets stop once the 3rd quarter starts).
     max_period: int | None = None
     stake_usd: float | None = None # dollars per bet; None = the file-wide stake
+    paper: bool = False            # True = track in the paper record only, never place an order
 
     @property
     def pregame_min_cents(self) -> int:
@@ -104,6 +105,7 @@ class PropRule:
             bet_line=str(d.get("bet_line", "same")),
             max_period=int(d["max_period"]) if d.get("max_period") is not None else None,
             stake_usd=float(d["stake_usd"]) if d.get("stake_usd") is not None else None,
+            paper=bool(d.get("paper", False)),
         )
 
 
