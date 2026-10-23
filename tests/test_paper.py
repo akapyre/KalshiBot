@@ -94,9 +94,9 @@ def test_settles_from_market_result(tmp_path):
 
 def test_config_loads():
     rules, stake = load_paper_rules()
-    assert [r.id for r in rules] == ["mlb_underdog_runline", "ev_moneyline"] and stake == 25
-    assert rules[0].kalshi_band == (10, 29)
-    assert isinstance(rules[1], EvRule) and rules[1].min_ev == 0.03
+    # mlb_underdog_runline is paused (enabled: false) until MLB is back
+    assert [r.id for r in rules] == ["ev_moneyline"] and stake == 25
+    assert isinstance(rules[0], EvRule) and rules[0].min_ev == 0.03
 
 
 EV = EvRule(id="ev_moneyline", sports=("mlb",), summary="", min_ev=0.03, kalshi_band=(10, 90), pregame_hours=3)

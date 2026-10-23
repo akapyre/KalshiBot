@@ -7,6 +7,7 @@ stake_usd: 25   # pretend stake per bet, for the paper record only
 
 rules:
   - id: mlb_underdog_runline
+    enabled: false   # paused 2026-10-22 by the owner until MLB is back -- set to true to turn back on
     sport: mlb
     summary: "Underdog takes an early lead (its win chance up 15+ points since first pitch, inning 5 or earlier). Bet it to win by 2.5+ runs when that line is 10-29¢ (+245 to +900). Paper only."
     description: >

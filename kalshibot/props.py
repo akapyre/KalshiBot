@@ -82,6 +82,10 @@ class PropRule:
     max_bets_per_game: int
     enabled: bool = True
     bet_line: str = "same"         # "same" line, or the "lower" line below it
+    # Latest period (NBA quarter) the rule may bet in; None = any time.
+    # 2 = first half only (bets stop once the 3rd quarter starts).
+    max_period: int | None = None
+    stake_usd: float | None = None # dollars per bet; None = the file-wide stake
 
     @property
     def pregame_min_cents(self) -> int:
@@ -98,6 +102,8 @@ class PropRule:
             max_bets_per_game=int(d.get("max_bets_per_game", 1)),
             enabled=bool(d.get("enabled", True)),
             bet_line=str(d.get("bet_line", "same")),
+            max_period=int(d["max_period"]) if d.get("max_period") is not None else None,
+            stake_usd=float(d["stake_usd"]) if d.get("stake_usd") is not None else None,
         )
 
 
@@ -298,11 +304,16 @@ class PropWatcher:
         self._store.set_many(prices)
 
     def candidates(self, markets: list[PropMarket], snapshot: GameSnapshot) -> list[PropBet]:
-        """Every player whose lower line is in a rule's price range now."""
+        """Every player whose lower line is in a rule's price range now. One
+        per player and stat: where two rules match, the one listed first in
+        rules.yaml wins (e.g. the -300 double-stake rule over the -200 one)."""
         out = []
         ladders = self.for_game(markets, snapshot)
+        taken: set[str] = set()
         for rule in self.rules:
             if rule.sport != snapshot.sport:
+                continue
+            if rule.max_period is not None and (snapshot.period is None or snapshot.period > rule.max_period):
                 continue
             for (stat, player), ladder in ladders.items():
                 if stat not in rule.stats:
@@ -325,7 +336,10 @@ class PropWatcher:
                 ask = yes_ask_cents(target.market)
                 lo, hi = rule.band
                 if ask is not None and lo <= ask <= hi:
-                    out.append(PropBet(rule, snapshot, player, stat, main, pregame[main], target, ask))
+                    bet = PropBet(rule, snapshot, player, stat, main, pregame[main], target, ask)
+                    if bet.key not in taken:
+                        taken.add(bet.key)
+                        out.append(bet)
         return out
 
     def describe_watch(self, markets: list[PropMarket], snapshot: GameSnapshot) -> list[str]:

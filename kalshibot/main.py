@@ -142,7 +142,8 @@ def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store
             logger.info("WATCHING props %s: %d players -- %s", game, len(watching), "; ".join(watching))
         for bet in watcher.candidates(markets, snapshot):
             rule = bet.rule
-            if state_store.has_fired(bet.key, rule.id):
+            # One bet per player and stat, whichever prop rule placed it.
+            if any(state_store.has_fired(bet.key, r.id) for r in watcher.rules):
                 continue
             if state_store.count_fired(f"{snapshot.game_id}|", rule.id) >= rule.max_bets_per_game:
                 continue
@@ -153,7 +154,8 @@ def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store
             )
             decision = BetDecision(
                 rule_id=rule.id, game_id=bet.key, sport=snapshot.sport, team=bet.label,
-                live_odds=american_odds(bet.ask), stake_usd=stake_usd, market="player_prop",
+                live_odds=american_odds(bet.ask), stake_usd=rule.stake_usd if rule.stake_usd is not None else stake_usd,
+                market="player_prop",
                 pregame_odds=american_odds(bet.main_pregame_cents), game=game,
             )
             try:

@@ -457,9 +457,31 @@ rules:
       odds_beyond: 180
     max_bets_per_game: 1
 
+  # Listed BEFORE nba_prop_favorite_drift on purpose: when both match the same
+  # player and stat (a -300 line at 46-50¢ is also in the -200 rule's range),
+  # the first rule listed places the one bet.
+  - id: nba_prop_heavy_favorite_even
+    kind: player_prop
+    summary: "Player is -300 or stronger at tip-off to reach a points, rebounds, assists or threes line. Bet that same line at double stake ($50) once Kalshi prices it +100 to +120 (46-50¢), first half only. Max 2 per game."
+    description: >
+      Added 2026-10-22 at the owner's request. "-300 to hit" = the highest
+      line on the player's Kalshi ladder priced 75¢ (-300) or more at
+      tip-off. The bet = YES on that same line when its ask is 46-50¢
+      (+117 to +100; 45¢ would be +122, past +120). Double the normal stake.
+      No bets once the 3rd quarter starts. One bet per player per stat,
+      shared with nba_prop_favorite_drift.
+    sport: nba
+    stats: [points, rebounds, assists, threes]
+    bet_line: same
+    pregame: {max_odds: -300}
+    trigger: {kalshi_cents: [46, 50]}
+    max_bets_per_game: 2
+    max_period: 2        # first half only
+    stake_usd: 50        # double the $25 unit
+
   - id: nba_prop_favorite_drift
     kind: player_prop
-    summary: "Player is -200 or stronger at tip-off to reach a points, rebounds, assists or threes line. Bet that same line once Kalshi prices it at plus money, +100 to +180 (36-50¢). Max 2 per game."
+    summary: "Player is -200 or stronger at tip-off to reach a points, rebounds, assists or threes line. Bet that same line once Kalshi prices it at plus money, +100 to +180 (36-50¢), first half only. Max 2 per game."
     description: >
       Added 2026-10-20, the NBA version of nhl_prop_favorite_drift. "-200 to
       hit" = the highest line on the player's Kalshi ladder priced 67¢
@@ -472,6 +494,7 @@ rules:
     pregame: {max_odds: -200}
     trigger: {kalshi_cents: [36, 50]}
     max_bets_per_game: 2
+    max_period: 2        # first half only (owner, 2026-10-22)
 
   - id: mlb_favorite_fade
     summary: "Favorite opened at -200 or stronger. From the 7th inning on, bet it when its live odds are +100 to +200."   # plain-English version for the results page

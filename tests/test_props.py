@@ -147,7 +147,11 @@ def test_run_props_bets_once_per_player_and_caps_per_game(tmp_path):
 def test_prop_rule_is_loaded_apart_from_game_rules():
     assert [(r.id, r.bet_line, r.stats) for r in load_prop_rules()] == [
         ("nhl_prop_favorite_drift", "same", ["points", "assists", "goals"]),
+        ("nba_prop_heavy_favorite_even", "same", ["points", "rebounds", "assists", "threes"]),
         ("nba_prop_favorite_drift", "same", ["points", "rebounds", "assists", "threes"])]
+    heavy, drift = load_prop_rules()[1:]
+    assert (heavy.pregame_min_cents, heavy.band, heavy.stake_usd, heavy.max_period) == (75, (46, 50), 50, 2)
+    assert (drift.stake_usd, drift.max_period) == (None, 2)
     assert "nhl_prop_favorite_drift" not in [r.id for r in load_rules()[0]]
 
 
@@ -243,7 +247,7 @@ def test_nba_prop_rule_uses_the_named_nba_series_and_bets_plus_money(tmp_path):
     assert sorted(t for _, t in w.series()) == ["KXNBA3PT", "KXNBAAST", "KXNBAPTS", "KXNBAREB"]
 
     snap = dataclasses.replace(game(players=("Jayson Tatum", "Jaylen Brown")), sport="nba",
-                               home_team="Detroit Pistons", away_team="Boston Celtics")
+                               home_team="Detroit Pistons", away_team="Boston Celtics", period=2)
     ev = "KXNBAPTS-26OCT15BOSDET"
     w._store.set_many({f"{ev}-TATUM20": 70, f"{ev}-TATUM25": 52})
     for ask, bets in ((55, False), (50, True), (36, True), (35, False)):   # -122 / +100 / +178 / +186
@@ -253,3 +257,62 @@ def test_nba_prop_rule_uses_the_named_nba_series_and_bets_plus_money(tmp_path):
         assert bool(found) == bets, ask
         if bets:
             assert found[0].label == "Jayson Tatum 20+ points"
+
+
+HEAVY = PropRule(id="nba_prop_heavy_favorite_even", sport="nba", stats=["points"], pregame_max_odds=-300,
+                 band=(46, 50), max_bets_per_game=2, max_period=2, stake_usd=50)
+DRIFT = PropRule(id="nba_prop_favorite_drift", sport="nba", stats=["points"], pregame_max_odds=-200,
+                 band=(36, 50), max_bets_per_game=2, max_period=2)
+
+
+def nba_game(period=2):
+    return dataclasses.replace(game(), sport="nba", home_team="Boston Celtics", away_team="Detroit Pistons",
+                               player_names=("Jayson Tatum",), period=period)
+
+
+class StakeExecutor(FakeExecutor):
+    def execute(self, decision, **kw):
+        self.orders.append((decision.rule_id, decision.stake_usd, kw["yes_price_cents"]))
+        self.store.record(decision.game_id, decision.rule_id)
+
+
+def nba_setup(tmp_path, ask, pregame=80):
+    ms = [mkt("Jayson Tatum", 25, ask=ask, event="KXNBAPTS-26OCT15DETBOS", stat="points")]
+    store = PropPregameStore(tmp_path / "p.json")
+    store.set_many({ms[0].market["ticker"]: pregame})
+    w = PropWatcher(kalshi=None, rules=[HEAVY, DRIFT], store=store)
+    w.fetch = lambda: ms
+    return w, ms
+
+
+def test_minus_300_line_at_even_money_bets_double_once(tmp_path):
+    w, ms = nba_setup(tmp_path, ask=48)
+    store = BetStateStore(tmp_path / "bets.json")
+    ex = StakeExecutor(store)
+    run_props(w, FakeProvider(), [nba_game()], store, ex, FakeKalshi(), 25.0)
+    ms[0].market["yes_ask_dollars"] = "0.4000"    # later drifts into the -200 rule's range
+    run_props(w, FakeProvider(), [nba_game()], store, ex, FakeKalshi(), 25.0)
+    assert ex.orders == [("nba_prop_heavy_favorite_even", 50, 48)]   # one bet per player and stat
+
+
+def test_minus_300_rule_band_is_plus_100_to_plus_120(tmp_path):
+    for ask, rule in ((50, "nba_prop_heavy_favorite_even"), (46, "nba_prop_heavy_favorite_even"),
+                      (45, "nba_prop_favorite_drift"), (51, None)):
+        w, ms = nba_setup(tmp_path / str(ask), ask=ask)
+        bets = w.candidates(ms, nba_game())
+        assert [b.rule.id for b in bets] == ([rule] if rule else [])
+
+
+def test_minus_200_only_line_bets_the_normal_stake(tmp_path):
+    w, ms = nba_setup(tmp_path, ask=48, pregame=70)     # -233 at tip: not -300
+    store = BetStateStore(tmp_path / "bets.json")
+    ex = StakeExecutor(store)
+    run_props(w, FakeProvider(), [nba_game()], store, ex, FakeKalshi(), 25.0)
+    assert ex.orders == [("nba_prop_favorite_drift", 25.0, 48)]
+
+
+def test_nba_props_stop_after_the_first_half(tmp_path):
+    w, ms = nba_setup(tmp_path, ask=48)
+    assert [b.rule.id for b in w.candidates(ms, nba_game(period=1))] == ["nba_prop_heavy_favorite_even"]
+    assert w.candidates(ms, nba_game(period=3)) == []
+    assert w.candidates(ms, nba_game(period=None)) == []   # halftime / unknown: no bet
