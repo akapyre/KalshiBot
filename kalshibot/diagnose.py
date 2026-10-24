@@ -13,6 +13,8 @@ Usage: python -m kalshibot.diagnose nfl           (or soccer / mlb / cfb / nhl)
                                                   or "reset" to start over at 0-0 -- stop the bot first)
        python -m kalshibot.diagnose transfer 3 1  (move $1 from exchange 0 to 3)
        python -m kalshibot.diagnose props         (Kalshi NHL player-prop markets the prop rule would use)
+       python -m kalshibot.diagnose books NBA     (which bookmakers SportsGameOdds has player props from,
+                                                  e.g. whether Underdog's own lines are included)
 
 Runs the exact same query and parsing as the live bot, then prints each
 event with the reason it is or isn't counted as a live game. "kalshi"
@@ -222,6 +224,48 @@ def check_leagues() -> None:
         print("\nNo tennis leagues on this key.")
 
 
+def check_books(league: str) -> None:
+    """Which bookmakers quote player props (over/under) in SportsGameOdds'
+    data for a league's games in the next 36 hours, and one sample prop --
+    to see whether DFS apps like Underdog are included."""
+    from collections import Counter
+    from datetime import datetime, timedelta, timezone
+    provider = SportsGameOddsProvider()
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    events = provider._fetch_leagues([league], (now - timedelta(hours=3)).strftime(fmt),
+                                     (now + timedelta(hours=36)).strftime(fmt))
+    print(f"{league}: {len(events)} events in the next 36 hours")
+    books: Counter = Counter()
+    props = 0
+    sample = None
+    for event in events:
+        for odd_id, odd in (event.get("odds") or {}).items():
+            if odd.get("betTypeID") != "ou" or not odd.get("playerID"):
+                continue
+            props += 1
+            by_book = odd.get("byBookmaker") or {}
+            books.update(by_book.keys())
+            if sample is None or ("underdog" in by_book and "underdog" not in (sample[1].get("byBookmaker") or {})):
+                sample = (odd_id, odd)
+    print(f"{props} player over/under prop lines")
+    print("Bookmakers quoting them (lines each):")
+    for book, n in books.most_common():
+        flag = "   <-- DFS app" if any(k in book.lower() for k in ("underdog", "prizepicks", "sleeper", "dabble")) else ""
+        print(f"  {book:24} {n}{flag}")
+    if not any("underdog" in b.lower() for b in books):
+        print("\nUnderdog is NOT in this data.")
+    if sample:
+        odd_id, odd = sample
+        print(f"\nSample prop {odd_id}: {odd.get('marketName')}")
+        print(json.dumps({k: odd.get(k) for k in ("playerID", "statID", "sideID", "bookOverUnder", "bookOdds",
+                                                  "fairOverUnder", "fairOdds")}))
+        by_book = odd.get("byBookmaker") or {}
+        shown = [b for b in by_book if "underdog" in b.lower()]
+        for book in shown + [b for b in list(by_book)[:4] if b not in shown]:
+            print(f"  {book}: {json.dumps(by_book[book])}")
+
+
 SPORT_BY_SERIES = {series: sport for sport, many in SERIES_BY_SPORT.items() for series in many}
 
 
@@ -397,6 +441,9 @@ def main() -> None:
         return
     if sport == "props":
         check_props()
+        return
+    if sport == "books":
+        check_books(sys.argv[2].upper() if len(sys.argv) > 2 else "NBA")
         return
     if sport == "paper":
         check_paper()
