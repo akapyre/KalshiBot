@@ -39,3 +39,12 @@ def test_basket_takes_one_per_event_and_stops_at_budget():
     assert len(chosen) == 4
     assert len({p.event for p in chosen}) == 4
     assert [p.ticker for p in chosen] == ["T0", "T2", "T4", "T6"]    # soonest = best per day
+
+
+def test_basket_at_50_skips_markets_too_thin_to_fill():
+    picks = [Pick("THIN", "E1", "Politics", "", "", 0.98, 30, 1, 1),     # $29 offered
+             Pick("DEEP", "E2", "Politics", "", "", 0.98, 1000, 2, 1)]
+    assert [p.ticker for p in basket(picks, 500)] == ["THIN", "DEEP"]
+    assert [p.ticker for p in basket(picks, 500, stake=50)] == ["DEEP"]
+    p = Pick("T", "E", "", "", "", 0.98, 1, 1, 1)
+    assert p.profit(50) == pytest.approx(2 * p.profit(25))

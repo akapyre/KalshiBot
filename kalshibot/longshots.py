@@ -4,6 +4,7 @@ only reads Kalshi.
 
 Usage:  python -m kalshibot.longshots scan                (NO at 98-99c)
         python -m kalshibot.longshots scan --min-no 97 --max-days 14 --budget 500
+        python -m kalshibot.longshots scan --stake 50 --budget 1000
 
 The trade: buy NO at 95-99c, collect 1-5c per contract when nothing happens,
 lose the whole stake when it does. At 97c one upset wipes out ~33 wins, so
@@ -88,13 +89,14 @@ def candidates(events: list[dict[str, Any]], now: float, min_no: float = 0.98, m
     return out
 
 
-def basket(picks: list[Pick], budget: float) -> list[Pick]:
-    """$25 bets, one per event, best return per day first, up to budget."""
+def basket(picks: list[Pick], budget: float, stake: float = STAKE) -> list[Pick]:
+    """`stake`-dollar bets, one per event, best return per day first, up to
+    budget. Skips markets without `stake` dollars of NO offered at the price."""
     chosen, events = [], set()
     for p in sorted(picks, key=lambda p: -p.per_day()):
-        if len(chosen) * STAKE + STAKE > budget:
+        if len(chosen) * stake + stake > budget:
             break
-        if p.event in events or p.depth * p.no_cost < STAKE:
+        if p.event in events or p.depth * p.no_cost < stake:
             continue
         chosen.append(p)
         events.add(p.event)
@@ -114,27 +116,27 @@ def open_events(kalshi) -> list[dict[str, Any]]:
     return events
 
 
-def _line(p: Pick) -> str:
-    return (f"  NO {p.no_cost * 100:5.1f}c  {p.days:4.0f}d  +${p.profit():5.2f}  {p.category[:11]:11}  "
+def _line(p: Pick, stake: float = STAKE) -> str:
+    return (f"  NO {p.no_cost * 100:5.1f}c  {p.days:4.0f}d  +${p.profit(stake):5.2f}  {p.category[:11]:11}  "
             f"{p.title[:48]:48} | {p.outcome[:32]}")
 
 
-def scan(min_no: float, max_days: float, min_volume: float, budget: float, show: int) -> None:
+def scan(min_no: float, max_days: float, min_volume: float, budget: float, show: int, stake: float) -> None:
     kalshi = build_kalshi_client(demo=False)
     print("Reading open Kalshi events...", flush=True)
     picks = candidates(open_events(kalshi), time.time(), min_no=min_no, max_days=max_days, min_volume=min_volume)
     print(f"\n{len(picks)} markets: NO at {min_no * 100:.0f}-99c, settling within {max_days:.0f} days, "
           f"volume {min_volume:,.0f}+ (non-sports)."
-          f"\nColumns: NO price, days to settle, profit on $25 if NO wins (after fee).\n")
+          f"\nColumns: NO price, days to settle, profit on ${stake:.0f} if NO wins (after fee).\n")
     for p in sorted(picks, key=lambda p: p.days)[:show]:
-        print(_line(p))
-    chosen = basket(picks, budget)
+        print(_line(p, stake))
+    chosen = basket(picks, budget, stake)
     if chosen:
-        win = sum(p.profit() for p in chosen)
-        print(f"\nBasket for ${budget:.0f} ({len(chosen)} x $25, one per event, best return per day):")
+        win = sum(p.profit(stake) for p in chosen)
+        print(f"\nBasket for ${budget:.0f} ({len(chosen)} x ${stake:.0f}, one per event, best return per day):")
         for p in chosen:
-            print(_line(p))
-        print(f"\n  If every NO wins: +${win:.2f}.  Each upset costs $25 (= {STAKE / (win / len(chosen)):.0f} "
+            print(_line(p, stake))
+        print(f"\n  If every NO wins: +${win:.2f}.  Each upset costs ${stake:.0f} (= {stake / (win / len(chosen)):.0f} "
               f"average wins).  Paper only: nothing was bought.")
 
 
@@ -145,9 +147,10 @@ def main() -> None:
     parser.add_argument("--max-days", type=float, default=45, help="settles within N days (default 45)")
     parser.add_argument("--min-volume", type=float, default=5000, help="contracts traded (default 5000)")
     parser.add_argument("--budget", type=float, default=500, help="basket size in dollars (default 500)")
+    parser.add_argument("--stake", type=float, default=25, help="dollars per bet (default 25)")
     parser.add_argument("--show", type=int, default=40, help="markets listed, soonest first (default 40)")
     args = parser.parse_args()
-    scan(args.min_no / 100, args.max_days, args.min_volume, args.budget, args.show)
+    scan(args.min_no / 100, args.max_days, args.min_volume, args.budget, args.show, args.stake)
 
 
 if __name__ == "__main__":

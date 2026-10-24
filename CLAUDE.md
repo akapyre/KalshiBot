@@ -22,7 +22,7 @@ plain-English `summary`. Start with README.md.
 Crypto research (paper only, never bets): `python -m kalshibot.crypto <backtest btc|eth --days N|collect|grade>`
 Weather research (paper only): `python -m kalshibot.weather backtest --days 60` (no edge found 2026-10-23)
 Maker (limit-order) research (paper only): `python -m kalshibot.maker backtest` (no edge found 2026-10-23)
-Long-shot NO scanner (paper only): `python -m kalshibot.longshots scan [--min-no 98 --max-days 45 --budget 500]` (backtest: 90-97c NO lost; 98-99c about even, 2026-10-23)
+Long-shot NO scanner (paper only): `python -m kalshibot.longshots scan [--min-no 98 --max-days 45 --budget 500 --stake 25]` (backtest: 90-97c NO lost; 98-99c about even, 2026-10-23)
 Tests: `python -m pytest -q tests` (the repo's skool_bot/ tests are separate).
 
 ## Kalshi facts learned the hard way
