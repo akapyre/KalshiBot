@@ -298,8 +298,7 @@ def check_paper() -> None:
         pnl = "" if b["pnl"] is None else f"{b['pnl']:+.2f}"
         print(f"  {b['placed_at'][:16]}  {b['status'].upper():5} {pnl:>8}  {b['label']} at {b['price_cents']}c "
               f"({b['game']}, inning {b['inning']}, {b['rule']})")
-    print("
-Paper record (no money): " + book.record_line())
+    print("\nPaper record (no money): " + book.record_line())
 
 
 def check_props() -> None:
