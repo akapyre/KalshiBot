@@ -177,3 +177,16 @@ it only bets players SportsGameOdds lists for that game. To see which Kalshi
 prop markets it finds and which players it's watching:
 
     python -m kalshibot.diagnose props
+
+## Underdog Streaks pick finder
+
+Suggests picks only -- you place them yourself in the Underdog app.
+
+- `python -m kalshibot.streaks picks NBA` (or `NFL`, ...): Underdog's current
+  player lines (from SportsGameOdds) scored against the sportsbooks' prices for
+  the same player and stat, with the vig removed and adjusted where a book's
+  line differs from Underdog's. Ranked by chance of hitting, only picks above
+  the 53.4% break-even, with the game each is in. `--live` adds games under way.
+- `python -m kalshibot.streaks log add "Player" points higher 24.5 --p 0.58 --game "MIL @ PHI"`,
+  then `log result <id> hit|miss|push`, and `log` to see your real hit rate
+  against 53.4%. Kept in `state/streak_picks.json`.

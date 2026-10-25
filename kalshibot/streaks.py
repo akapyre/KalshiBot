@@ -8,16 +8,43 @@ Usage:
       take the cash-out, or keep going? (--p = your chance per remaining pick)
   python -m kalshibot.streaks value --entry 20 --prize 20000 --p 0.56
       what an entry is worth if every pick hits at that rate
+  python -m kalshibot.streaks picks NBA [--top 20] [--live]
+      Underdog's current lines scored against the sportsbooks' prices for
+      the same player and stat; only picks above the 53.4% break-even
+  python -m kalshibot.streaks log [add|result|show]
+      record your picks and results (state/streak_picks.json) and see your
+      real hit rate against 53.4%
 
 All of this is risk-neutral expected value: it says which choice pays more
 on average. Taking a smaller sure amount can still be the right call for
 you -- the numbers just show what it costs.
+
+Only suggests picks; you place them yourself in the Underdog app.
 """
 from __future__ import annotations
 
 import argparse
+import json
+import math
+import os
+import statistics
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
 PICKS = 11
+BREAK_EVEN = 0.534  # break_even(1000, 1): ~1,000x for 11 in a row
+
+# Pick'em apps quote a line with no real price, so they say nothing about
+# the chance; "unknown" is an unnamed feed.
+NOT_SPORTSBOOKS = {"underdog", "prizepicks", "sleeper", "dabble", "betr", "parlayplay", "chalkboard", "unknown"}
+# A book's over and under must both be live and quoted within this long of
+# each other, or the pair is stale (e.g. over -163 / under -2400).
+PAIR_MAX_GAP = timedelta(minutes=10)
+QUOTE_MAX_AGE = timedelta(hours=2)
+# Books whose line is further than this from Underdog's are left out rather
+# than stretched with the line-adjustment model.
+MAX_LINE_GAP = 0.2
 
 
 def implied(american: int) -> float:
@@ -52,6 +79,280 @@ def cashout_verdict(prize: float, picks_left: int, offer: float, p: float) -> st
             f"The offer wins if your picks are below {needed:.1%}.")
 
 
+# ---- Line adjustment ---------------------------------------------------
+# A book prices "over 4.5" but Underdog asks about 3.5: fit a distribution
+# for the stat to the book's vig-free chance at its line, then read off the
+# chance at Underdog's line. Small counts (assists, steals, threes, TDs)
+# use a Poisson; big totals (points, PRA) and yardage use a normal whose
+# spread is a share of the line.
+
+SD_SHARE = {"passing_yards": 0.25, "rushing_yards": 0.45, "receiving_yards": 0.55}
+SD_SHARE_YARDS = 0.45
+SD_SHARE_DEFAULT = 0.30
+
+
+def _uses_normal(stat: str, line: float) -> bool:
+    return "yards" in stat or "fantasy" in stat.lower() or line >= 12
+
+
+def _poisson_over(line: float, lam: float) -> float:
+    """P(stat > line); on a whole-number line, a push doesn't count either way."""
+    k = math.floor(line)
+    term = math.exp(-lam)
+    cdf = term
+    for i in range(1, k + 1):
+        term *= lam / i
+        cdf += term
+    if line == k:  # P(X = k) is `term`
+        return (1 - cdf) / (1 - term) if term < 1 else 0.0
+    return 1 - cdf
+
+
+def _solve_lambda(line: float, p_over: float) -> float:
+    lo, hi = 1e-6, 4 * line + 20
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        if _poisson_over(line, mid) < p_over:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def _normal_sd(stat: str, line: float) -> float:
+    share = SD_SHARE.get(stat, SD_SHARE_YARDS if "yards" in stat else SD_SHARE_DEFAULT)
+    return max(share * line, 5.0 if "yards" in stat else 1.5)
+
+
+def adjust_to_line(stat: str, book_line: float, p_over: float, target_line: float) -> float:
+    """Chance of going over `target_line`, given a vig-free `p_over` at `book_line`."""
+    if book_line == target_line:
+        return p_over
+    p_over = min(max(p_over, 0.005), 0.995)
+    if _uses_normal(stat, book_line):
+        sd = _normal_sd(stat, book_line)
+        mean = book_line + sd * statistics.NormalDist().inv_cdf(p_over)
+        return 1 - statistics.NormalDist(mean, sd).cdf(target_line)
+    return _poisson_over(target_line, _solve_lambda(book_line, p_over))
+
+
+# ---- Pick finder -------------------------------------------------------
+
+STAT_NAMES = {
+    "points": "Points", "rebounds": "Rebounds", "assists": "Assists", "steals": "Steals", "blocks": "Blocks",
+    "threePointersMade": "3-Pointers Made", "turnovers": "Turnovers",
+    "points+rebounds+assists": "Pts + Rebs + Asts", "points+rebounds": "Points + Rebounds",
+    "points+assists": "Points + Assists", "rebounds+assists": "Rebounds + Assists",
+    "blocks+steals": "Blocks + Steals",
+}
+
+
+def stat_name(stat: str) -> str:
+    if stat in STAT_NAMES:
+        return STAT_NAMES[stat]
+    words = []
+    for part in stat.replace("+", " + ").replace("_", " ").split(" "):
+        spaced = "".join(" " + c.lower() if c.isupper() else c for c in part)
+        words.append(spaced.strip())
+    return " ".join(w for w in words if w).title().replace(" + ", " + ")
+
+
+def _stamp(s: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def book_chances(over: dict[str, Any], under: dict[str, Any], now: datetime) -> list[tuple[str, float, float]]:
+    """(book, line, vig-free chance of over) for each sportsbook quoting both
+    sides of a player's over/under live and fresh, at the same line."""
+    out = []
+    unders = under.get("byBookmaker") or {}
+    for book, o in (over.get("byBookmaker") or {}).items():
+        u = unders.get(book)
+        if book in NOT_SPORTSBOOKS or not u or not (o.get("available") and u.get("available")):
+            continue
+        try:
+            line, line_u = float(o["overUnder"]), float(u["overUnder"])
+            o_odds, u_odds = int(float(o["odds"])), int(float(u["odds"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        t_o, t_u = _stamp(o.get("lastUpdatedAt")), _stamp(u.get("lastUpdatedAt"))
+        if line != line_u or not t_o or not t_u or abs(t_o - t_u) > PAIR_MAX_GAP or now - min(t_o, t_u) > QUOTE_MAX_AGE:
+            continue
+        overround = implied(o_odds) + implied(u_odds)
+        if not 1.0 <= overround <= 1.25:  # an arb or a huge margin = a bad quote
+            continue
+        out.append((book, line, fair_probability(o_odds, u_odds)))
+    return out
+
+
+def game_label(event: dict[str, Any]) -> str:
+    teams = event.get("teams") or {}
+    away = ((teams.get("away") or {}).get("names") or {}).get("short", "?")
+    home = ((teams.get("home") or {}).get("names") or {}).get("short", "?")
+    start = _stamp((event.get("status") or {}).get("startsAt"))
+    when = start.astimezone().strftime("%a %I:%M%p").replace(" 0", " ") if start else ""
+    return f"{away} @ {home} {when}".strip()
+
+
+def find_picks(events: list[dict[str, Any]], now: datetime, live: bool = False,
+               min_books: int = 2) -> tuple[list[dict[str, Any]], int]:
+    """Every Underdog player line that the sportsbooks also price, scored:
+    the median (over the books) of the vig-free chance of the better side,
+    adjusted to Underdog's line. Best first, plus how many Underdog lines
+    had too few sportsbook prices to score."""
+    picks = []
+    unpriced = 0
+    for event in events:
+        status = event.get("status") or {}
+        started = bool(status.get("started") or status.get("live"))
+        if status.get("completed") or (started and not live):
+            continue
+        odds = event.get("odds") or {}
+        players = event.get("players") or {}
+        for over in odds.values():
+            if over.get("betTypeID") != "ou" or over.get("sideID") != "over" or not over.get("playerID"):
+                continue
+            if over.get("periodID", "game") != "game" or over.get("ended") or over.get("cancelled"):
+                continue
+            under = odds.get(over.get("opposingOddID", ""))
+            ud = (over.get("byBookmaker") or {}).get("underdog") or {}
+            if not under or not ud.get("available") or "overUnder" not in ud:
+                continue
+            ud_line = float(ud["overUnder"])
+            stat = over.get("statID", "")
+            used = [(b, line, adjust_to_line(stat, line, p, ud_line))
+                    for b, line, p in book_chances(over, under, now)
+                    if abs(line - ud_line) <= max(1.0, MAX_LINE_GAP * ud_line)]
+            if len(used) < min_books:
+                unpriced += 1
+                continue
+            p_higher = statistics.median(p for _, _, p in used)
+            side, p = ("Higher", p_higher) if p_higher >= 0.5 else ("Lower", 1 - p_higher)
+            player = (players.get(over["playerID"]) or {}).get("name") or over["playerID"]
+            picks.append({
+                "player": player, "stat": stat, "stat_name": stat_name(stat), "side": side, "line": ud_line,
+                "p": p, "books": len(used), "same_line": sum(1 for _, line, _ in used if line == ud_line),
+                "game": game_label(event), "game_id": event.get("eventID", ""), "live": started,
+            })
+    picks.sort(key=lambda x: x["p"], reverse=True)
+    return picks, unpriced
+
+
+def first_two(picks: list[dict[str, Any]]) -> tuple[int, int] | None:
+    """Indexes of the best two picks in different games."""
+    if not picks:
+        return None
+    for j in range(1, len(picks)):
+        if picks[j]["game_id"] != picks[0]["game_id"]:
+            return 0, j
+    return None
+
+
+def fetch_events(league: str, hours: int = 36) -> list[dict[str, Any]]:
+    from dotenv import load_dotenv
+    from .odds_providers.sportsgameodds import SportsGameOddsProvider
+    load_dotenv(".env")
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    return SportsGameOddsProvider()._fetch_leagues(
+        [league], (now - timedelta(hours=4)).strftime(fmt), (now + timedelta(hours=hours)).strftime(fmt))
+
+
+def show_picks(league: str, top: int, live: bool, min_books: int) -> None:
+    now = datetime.now(timezone.utc)
+    picks, unpriced = find_picks(fetch_events(league), now, live=live, min_books=min_books)
+    good = [x for x in picks if x["p"] > BREAK_EVEN]
+    print(f"{league}: {len(picks)} Underdog lines priced by {min_books}+ sportsbooks; "
+          f"{len(good)} above the {BREAK_EVEN:.1%} break-even.")
+    if unpriced:
+        print(f"({unpriced} more Underdog lines have no sportsbook prices yet -- books often post "
+              "props the day of the game.)")
+    print()
+    if not good:
+        return
+    for i, x in enumerate(good[:top], 1):
+        flag = "  LIVE" if x["live"] else ""
+        print(f"{i:>2}. {x['player']} / {x['stat_name']} / {x['side']} / {x['line']:g} / {x['p']:.1%}"
+              f"   {x['game']}  ({x['books']} books, {x['same_line']} at this line){flag}")
+    pair = first_two(good[:top])
+    if pair:
+        a, b = pair
+        print(f"\nFirst two picks in different games: #{a + 1} and #{b + 1} "
+              f"(both hit {good[a]['p'] * good[b]['p']:.1%} of the time).")
+    print("\nHit % = sportsbooks' median vig-free chance, adjusted where their line differs from "
+          "Underdog's (\"0 at this line\" = all adjusted, less certain). Lines move, and Streaks may "
+          "not offer every line or both sides: check the app before picking.")
+
+
+# ---- Pick log ----------------------------------------------------------
+
+LOG_PATH = Path("state/streak_picks.json")
+
+
+def load_log(path: Path = LOG_PATH) -> list[dict[str, Any]]:
+    return json.loads(path.read_text()) if path.exists() else []
+
+
+def save_log(picks: list[dict[str, Any]], path: Path = LOG_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(picks, indent=2))
+    os.replace(tmp, path)
+
+
+def log_summary(picks: list[dict[str, Any]]) -> str:
+    graded = [x for x in picks if x.get("result") in ("hit", "miss")]
+    if not graded:
+        return f"No graded picks yet (break-even is {BREAK_EVEN:.1%})."
+    n = len(graded)
+    hits = sum(1 for x in graded if x["result"] == "hit")
+    rate = hits / n
+    # Wilson 95% range for the true hit rate
+    z = 1.96
+    centre = (rate + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(rate * (1 - rate) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    lo, hi = centre - half, centre + half
+    verdict = ("clearly above" if lo > BREAK_EVEN else "clearly below" if hi < BREAK_EVEN
+               else "too few picks to tell vs")
+    text = (f"{hits}/{n} hit = {rate:.1%} (95% range {lo:.1%}-{hi:.1%}): {verdict} the {BREAK_EVEN:.1%} break-even.")
+    predicted = [x["p"] for x in graded if x.get("p")]
+    if predicted:
+        text += f"\nThe finder expected {statistics.mean(predicted):.1%} on the {len(predicted)} picks it scored."
+    return text
+
+
+def run_log(args: argparse.Namespace) -> None:
+    picks = load_log()
+    if args.action == "add":
+        side = args.side.capitalize()
+        if side not in ("Higher", "Lower"):
+            raise SystemExit("side must be higher or lower")
+        pick = {"id": max((x["id"] for x in picks), default=0) + 1,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"), "player": args.player, "stat": args.stat,
+                "side": side, "line": args.line, "p": args.p, "game": args.game, "result": None}
+        picks.append(pick)
+        save_log(picks)
+        print(f"Logged #{pick['id']}: {pick['player']} / {pick['stat']} / {side} / {pick['line']:g}")
+        return
+    if args.action == "result":
+        for x in picks:
+            if x["id"] == args.id:
+                x["result"] = args.result
+                save_log(picks)
+                print(f"#{x['id']} {x['player']} {x['stat']} {x['side']} {x['line']:g}: {args.result}")
+                break
+        else:
+            raise SystemExit(f"no pick #{args.id}")
+    for x in picks[-args.last:]:
+        p = f"{x['p']:.1%}" if x.get("p") else "-"
+        print(f"#{x['id']:<3} {x['date']}  {x['player']} / {x['stat']} / {x['side']} / {x['line']:g}"
+              f"  [{p}]  {x.get('game') or ''}  -> {x.get('result') or 'open'}")
+    print(log_summary(picks))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Underdog Streaks math")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -68,9 +369,33 @@ def main() -> None:
     v.add_argument("--prize", type=float, required=True)
     v.add_argument("--p", type=float, required=True)
     v.add_argument("--picks", type=int, default=PICKS)
+    pk = sub.add_parser("picks", help="Underdog lines scored against the sportsbooks")
+    pk.add_argument("league", nargs="?", default="NBA", type=str.upper)
+    pk.add_argument("--top", type=int, default=20)
+    pk.add_argument("--live", action="store_true", help="include games already under way")
+    pk.add_argument("--min-books", type=int, default=2)
+    lg = sub.add_parser("log", help="record picks and results; real hit rate vs 53.4%%")
+    lg.set_defaults(action="show")
+    lsub = lg.add_subparsers(dest="action")
+    la = lsub.add_parser("add", help='e.g. log add "Jalen Brunson" points higher 25.5 --p 0.58')
+    la.add_argument("player")
+    la.add_argument("stat")
+    la.add_argument("side", help="higher or lower")
+    la.add_argument("line", type=float)
+    la.add_argument("--p", type=float, help="the finder's hit %% as a fraction, e.g. 0.58")
+    la.add_argument("--game", default="")
+    lr = lsub.add_parser("result", help="e.g. log result 3 hit")
+    lr.add_argument("id", type=int)
+    lr.add_argument("result", choices=["hit", "miss", "push"])
+    lsub.add_parser("show")
+    lg.add_argument("--last", type=int, default=20)
     args = parser.parse_args()
 
-    if args.cmd == "odds":
+    if args.cmd == "picks":
+        show_picks(args.league, args.top, args.live, args.min_books)
+    elif args.cmd == "log":
+        run_log(args)
+    elif args.cmd == "odds":
         p = fair_probability(args.price, args.other_side)
         print(f"{args.price:+d} vs {args.other_side:+d}: this side hits {p:.1%} "
               f"({'above' if p > break_even(1000, 1) else 'below'} the {break_even(1000, 1):.1%} "
