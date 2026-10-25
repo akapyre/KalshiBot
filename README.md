@@ -187,6 +187,12 @@ Suggests picks only -- you place them yourself in the Underdog app.
   the same player and stat, with the vig removed and adjusted where a book's
   line differs from Underdog's. Ranked by chance of hitting, only picks above
   the 53.4% break-even, with the game each is in. `--live` adds games under way.
+- Underdog changes the prize with each pick's odds, so the best pick is the
+  highest hit % x prize change, not the likeliest. To compare candidates, read
+  the app's prize before and after adding each one:
+  `python -m kalshibot.streaks compare NBA "Devin Booker / rebounds / lower / 4.5 / 20000 / 21000" "Miles Bridges / blocks / lower / 1.5 / 20000 / 14000"`
+  (add `/ 62` at the end of a candidate to give your own hit %). It ranks them
+  and says whether to split the top two across two streaks or use one on both.
 - `python -m kalshibot.streaks log add "Player" points higher 24.5 --p 0.58 --game "MIL @ PHI"`,
   then `log result <id> hit|miss|push`, and `log` to see your real hit rate
   against 53.4%. Kept in `state/streak_picks.json`.

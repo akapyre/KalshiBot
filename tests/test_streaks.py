@@ -80,3 +80,40 @@ def test_log_summary():
     picks = [{"result": "hit", "p": 0.6}] * 70 + [{"result": "miss", "p": 0.6}] * 30 + [{"result": "push"}]
     text = log_summary(picks)
     assert "70/100 hit = 70.0%" in text and "clearly above" in text
+
+
+from kalshibot.streaks import find_market, parse_candidate, score_candidate, two_streaks
+
+
+def test_parse_candidate():
+    c = parse_candidate("Devin Booker / rebounds / Lower / 4.5 / $20,000 / 21000")
+    assert c["side"] == "Lower" and c["line"] == 4.5 and c["m"] == 1.05 and c["p"] is None
+    assert parse_candidate("A / pts / higher / 20.5 / 100 / 80 / 62%")["p"] == 0.62
+    for bad in ("A / pts / over / 1 / 1 / 1", "A / pts / higher / 1"):
+        try:
+            parse_candidate(bad)
+            assert False, bad
+        except ValueError:
+            pass
+
+
+def test_find_market_and_score_candidate():
+    books_o = {"fanduel": _q("+150", 24.5), "draftkings": _q("+140", 24.5)}
+    books_u = {"fanduel": _q("-190", 24.5), "draftkings": _q("-175", 24.5)}
+    events = [_event("g1", books_o, books_u)]
+    assert find_market(events, "joe player", "PTS")[3] == "Joe Player"
+    try:
+        find_market(events, "Nobody", "points")
+        assert False
+    except LookupError:
+        pass
+    lower = score_candidate(parse_candidate("Joe / points / lower / 24.5 / 100 / 90"), events, NOW)
+    assert lower["p"] > 0.6 and lower["score"] == lower["p"] * 0.9 and lower["game"].startswith("MIL @ PHI")
+    own = score_candidate(parse_candidate("Ghost / points / higher / 9.5 / 100 / 120 / 55"), events, NOW)
+    assert own["score"] == 0.55 * 1.2 and own["own_p"]
+
+
+def test_two_streaks_split_or_same():
+    a = {"p": 0.80, "score": 0.80, "game_id": "a"}
+    assert "SPLIT" in two_streaks(a, {"p": 0.78, "score": 0.78, "game_id": "b"})
+    assert "SAME PICK" in two_streaks(a, {"p": 0.60, "score": 0.60, "game_id": "b"})

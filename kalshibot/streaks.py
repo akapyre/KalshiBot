@@ -11,6 +11,9 @@ Usage:
   python -m kalshibot.streaks picks NBA [--top 20] [--live]
       Underdog's current lines scored against the sportsbooks' prices for
       the same player and stat; only picks above the 53.4% break-even
+  python -m kalshibot.streaks compare NBA "Devin Booker / rebounds / lower / 4.5 / 20000 / 21000" ...
+      rank candidates by hit % x prize change (the app's prize after the
+      pick / before), and say whether to split them across two streaks
   python -m kalshibot.streaks log [add|result|show]
       record your picks and results (state/streak_picks.json) and see your
       real hit rate against 53.4%
@@ -197,6 +200,15 @@ def game_label(event: dict[str, Any]) -> str:
     return f"{away} @ {home} {when}".strip()
 
 
+def chances_at_line(over: dict[str, Any], under: dict[str, Any], line: float,
+                    now: datetime) -> list[tuple[str, float, float]]:
+    """(book, book's line, chance of over `line`) for each usable sportsbook."""
+    stat = over.get("statID", "")
+    return [(b, book_line, adjust_to_line(stat, book_line, p, line))
+            for b, book_line, p in book_chances(over, under, now)
+            if abs(book_line - line) <= max(1.0, MAX_LINE_GAP * line)]
+
+
 def find_picks(events: list[dict[str, Any]], now: datetime, live: bool = False,
                min_books: int = 2) -> tuple[list[dict[str, Any]], int]:
     """Every Underdog player line that the sportsbooks also price, scored:
@@ -223,9 +235,7 @@ def find_picks(events: list[dict[str, Any]], now: datetime, live: bool = False,
                 continue
             ud_line = float(ud["overUnder"])
             stat = over.get("statID", "")
-            used = [(b, line, adjust_to_line(stat, line, p, ud_line))
-                    for b, line, p in book_chances(over, under, now)
-                    if abs(line - ud_line) <= max(1.0, MAX_LINE_GAP * ud_line)]
+            used = chances_at_line(over, under, ud_line, now)
             if len(used) < min_books:
                 unpriced += 1
                 continue
@@ -285,6 +295,152 @@ def show_picks(league: str, top: int, live: bool, min_books: int) -> None:
     print("\nHit % = sportsbooks' median vig-free chance, adjusted where their line differs from "
           "Underdog's (\"0 at this line\" = all adjusted, less certain). Lines move, and Streaks may "
           "not offer every line or both sides: check the app before picking.")
+
+
+# ---- Compare candidates by prize-adjusted value -------------------------
+# Underdog changes the prize with each pick's odds, so the best pick is not
+# the likeliest one: it's the one with the highest hit % x m, where m = the
+# prize after taking the pick / the prize before. A streak's average worth
+# is its current prize times the product of those scores.
+
+STAT_ALIASES = {
+    "pts": "points", "reb": "rebounds", "rebs": "rebounds", "ast": "assists", "asts": "assists",
+    "stl": "steals", "blk": "blocks", "3pm": "threePointersMade", "threes": "threePointersMade",
+    "3pt": "threePointersMade", "pra": "points+rebounds+assists", "pr": "points+rebounds",
+    "pa": "points+assists", "ra": "rebounds+assists", "stocks": "blocks+steals",
+}
+
+
+def _norm(text: str) -> str:
+    import unicodedata
+    plain = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return "".join(c for c in plain.lower() if c.isalnum())
+
+
+def parse_candidate(spec: str) -> dict[str, Any]:
+    """'Player / stat / higher|lower / line / prize before / prize after [/ hit %]'"""
+    parts = [p.strip() for p in spec.split("/")]
+    if len(parts) not in (6, 7):
+        raise ValueError(f'expected "Player / stat / higher|lower / line / prize before / prize after '
+                         f'[/ hit %]", got "{spec}"')
+    side = parts[2].capitalize()
+    if side not in ("Higher", "Lower"):
+        raise ValueError(f'side must be higher or lower in "{spec}"')
+
+    def money(s: str) -> float:
+        return float(s.replace("$", "").replace(",", ""))
+
+    before, after = money(parts[4]), money(parts[5])
+    if before <= 0 or after <= 0:
+        raise ValueError(f'prizes must be positive in "{spec}"')
+    p = None
+    if len(parts) == 7:
+        p = float(parts[6].rstrip("%"))
+        p = p / 100 if p > 1 else p
+    return {"player": parts[0], "stat": parts[1], "side": side, "line": float(parts[3]),
+            "m": after / before, "p": p}
+
+
+def find_market(events: list[dict[str, Any]], player: str, stat: str) -> tuple[dict, dict, dict, str]:
+    """(event, over, under, full player name) for a player's full-game over/under on a stat."""
+    want_stat = _norm(STAT_ALIASES.get(_norm(stat), stat))
+    want_player = _norm(player)
+    found = []
+    for event in events:
+        odds = event.get("odds") or {}
+        players = event.get("players") or {}
+        for over in odds.values():
+            if over.get("betTypeID") != "ou" or over.get("sideID") != "over" or not over.get("playerID"):
+                continue
+            if over.get("periodID", "game") != "game":
+                continue
+            stat_id = over.get("statID", "")
+            if want_stat not in (_norm(stat_id), _norm(stat_name(stat_id))):
+                continue
+            name = (players.get(over["playerID"]) or {}).get("name") or over["playerID"]
+            if want_player == _norm(name) or want_player in _norm(name):
+                under = odds.get(over.get("opposingOddID", ""))
+                if under:
+                    found.append((event, over, under, name))
+    exact = [f for f in found if _norm(f[3]) == want_player]
+    found = exact or found
+    names = sorted({f[3] for f in found})
+    if not found:
+        raise LookupError(f"no {stat} over/under for {player} in the data")
+    if len(names) > 1:
+        raise LookupError(f"{player} matches {', '.join(names)}: use the full name")
+    return found[0]
+
+
+def score_candidate(cand: dict[str, Any], events: list[dict[str, Any]] | None, now: datetime,
+                    min_books: int = 2) -> dict[str, Any]:
+    """Fill in hit % (from the sportsbooks, unless given), game and score."""
+    out = dict(cand, game="", game_id=cand["player"], books=0, same_line=0, live=False, note="",
+               own_p=cand["p"] is not None)
+    if events is not None:
+        try:
+            event, over, under, name = find_market(events, cand["player"], cand["stat"])
+            status = event.get("status") or {}
+            out.update(player=name, stat=stat_name(over.get("statID", "")), game=game_label(event),
+                       game_id=event.get("eventID", ""), live=bool(status.get("started") or status.get("live")))
+            used = chances_at_line(over, under, cand["line"], now)
+            out.update(books=len(used), same_line=sum(1 for _, line, _ in used if line == cand["line"]))
+            if cand["p"] is None:
+                if len(used) < min_books:
+                    out["note"] = f"only {len(used)} sportsbook(s) price this; add a hit % yourself"
+                else:
+                    p_higher = statistics.median(p for _, _, p in used)
+                    out["p"] = p_higher if cand["side"] == "Higher" else 1 - p_higher
+        except LookupError as e:
+            out["note"] = str(e) if cand["p"] is None else ""
+    if out["p"] is not None:
+        out["score"] = out["p"] * out["m"]
+    return out
+
+
+def two_streaks(best: dict[str, Any], second: dict[str, Any]) -> str:
+    """Same pick on both streaks, or the best two picks split across them."""
+    same_ev, split_ev = best["score"], (best["score"] + second["score"]) / 2
+    same_alive = best["p"]
+    split_alive = 1 - (1 - best["p"]) * (1 - second["p"])
+    cost = 1 - split_ev / same_ev
+    linked = best["game_id"] == second["game_id"]
+    lines = [
+        "Two streaks:",
+        f"  Same pick (#1 on both): at least one streak survives {same_alive:.1%}; "
+        f"average worth x{same_ev:.3f}.",
+        f"  Split (#1 on one, #2 on the other): at least one survives {split_alive:.1%}"
+        f"{' (same game, so really a bit less)' if linked else ''}; average worth x{split_ev:.3f}.",
+    ]
+    if cost <= 0.05:
+        lines.append(f"  -> SPLIT: it costs {cost:.1%} of average worth and cuts the chance of losing both "
+                     f"from {1 - same_alive:.1%} to {1 - split_alive:.1%}.")
+    else:
+        lines.append(f"  -> SAME PICK: #2 is {cost:.1%} worse on average, too much to give up for safety "
+                     "(your call if you'd rather not risk both on one pick).")
+    return "\n".join(lines)
+
+
+def show_compare(league: str, specs: list[str], min_books: int) -> None:
+    now = datetime.now(timezone.utc)
+    cands = [parse_candidate(s) for s in specs]
+    events = fetch_events(league)  # also gives each pick's game, even with your own hit %
+    scored = [score_candidate(c, events, now, min_books) for c in cands]
+    ranked = sorted((x for x in scored if "score" in x), key=lambda x: x["score"], reverse=True)
+    print("Ranked by score = hit % x prize change (higher is better):\n")
+    for i, x in enumerate(ranked, 1):
+        where = f"   {x['game']}" if x["game"] else ""
+        books = ("  (your hit %)" if x["own_p"] else f"  ({x['books']} books, {x['same_line']} at this line)")
+        flag = "  LIVE" if x["live"] else ""
+        print(f"{i:>2}. {x['player']} / {x['stat']} / {x['side']} / {x['line']:g}   "
+              f"hit {x['p']:.1%} x {x['m']:.3f} = {x['score']:.3f}{where}{books}{flag}")
+    for x in scored:
+        if "score" not in x:
+            print(f"  could not score {x['player']} / {x['stat']}: {x['note']}")
+    if len(ranked) >= 2:
+        print("\n" + two_streaks(ranked[0], ranked[1]))
+    print(f"\nFor scale: a pick at the {BREAK_EVEN:.1%} break-even with no prize change scores {BREAK_EVEN:.3f}. "
+          "Prize change = the app's prize after adding the pick / before.")
 
 
 # ---- Pick log ----------------------------------------------------------
@@ -374,6 +530,11 @@ def main() -> None:
     pk.add_argument("--top", type=int, default=20)
     pk.add_argument("--live", action="store_true", help="include games already under way")
     pk.add_argument("--min-books", type=int, default=2)
+    cp = sub.add_parser("compare", help="rank candidate picks by hit %% x prize change")
+    cp.add_argument("league", type=str.upper)
+    cp.add_argument("candidates", nargs="+",
+                    help='"Player / stat / higher|lower / line / prize before / prize after [/ hit %%]"')
+    cp.add_argument("--min-books", type=int, default=2)
     lg = sub.add_parser("log", help="record picks and results; real hit rate vs 53.4%%")
     lg.set_defaults(action="show")
     lsub = lg.add_subparsers(dest="action")
@@ -393,6 +554,11 @@ def main() -> None:
 
     if args.cmd == "picks":
         show_picks(args.league, args.top, args.live, args.min_books)
+    elif args.cmd == "compare":
+        try:
+            show_compare(args.league, args.candidates, args.min_books)
+        except ValueError as e:
+            raise SystemExit(str(e))
     elif args.cmd == "log":
         run_log(args)
     elif args.cmd == "odds":
