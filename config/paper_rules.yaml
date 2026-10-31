@@ -37,3 +37,21 @@ rules:
     min_ev: 0.03
     kalshi_cents: [10, 90]
     pregame_hours: 3
+
+  - id: nhl_over_3_5_pregame
+    kind: total_over
+    sport: nhl
+    summary: "NHL: bet Over 3.5 goals just before puck drop when Kalshi prices it 88-94c (-733 to -1567). Paper only."
+    description: >
+      Added 2026-10-31 at the owner's request, from a replay of 1,505 NHL
+      games on Kalshi (Oct 2025 - Oct 2026; state/nhl_totals_backtest.txt).
+      Over 3.5 bought at the puck-drop ask won 90% vs 88% priced overall
+      (+1.6%, within luck), but 125 games priced 88c+ won 95% vs 90% priced
+      (+5%; 90c+ alone: 47 of 48, t 3.1). Cheaper Over 3.5 (85-88c) lost.
+      A team-scoring model (last-10 goals for/against) did NOT beat Kalshi's
+      price, and live bets on any line at any price were about even.
+      One bet per game, within 20 minutes of the scheduled start.
+    line: 3.5
+    kalshi_cents: [88, 94]
+    phase: pregame
+    pregame_minutes: 20

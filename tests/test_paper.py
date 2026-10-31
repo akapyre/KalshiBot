@@ -1,7 +1,7 @@
 import dataclasses
 
 from kalshibot.odds_providers.base import GameSnapshot
-from kalshibot.paper import (EvRule, PaperBook, PaperTrader, RunlineRule, expected_return, load_paper_rules,
+from kalshibot.paper import (EvRule, PaperBook, PaperTrader, RunlineRule, TotalRule, expected_return, load_paper_rules,
                              win_chance)
 
 RULE = RunlineRule(id="mlb_underdog_runline", sport="mlb", summary="", dog_gain_points=15, max_inning=5,
@@ -95,7 +95,8 @@ def test_settles_from_market_result(tmp_path):
 def test_config_loads():
     rules, stake = load_paper_rules()
     # mlb_underdog_runline is paused (enabled: false) until MLB is back
-    assert [r.id for r in rules] == ["ev_moneyline"] and stake == 25
+    assert [r.id for r in rules] == ["ev_moneyline", "nhl_over_3_5_pregame"] and stake == 25
+    assert isinstance(rules[1], TotalRule) and rules[1].line == 3.5 and rules[1].kalshi_band == (88, 94)
     assert isinstance(rules[0], EvRule) and rules[0].min_ev == 0.03
 
 
@@ -157,3 +158,61 @@ def test_fair_fields_devig_pinnacle_and_fall_back_to_consensus():
     f = _fair_fields("nba", odds, live=True)
     assert f["fair_source"] == "consensus" and abs(f["fair_win_chance"]["home"] - 140 / 240 / (140 / 240 + 100 / 240)) < 1e-9
     assert _fair_fields("nba", {"h": odds["h"]}, live=True) == {}
+
+
+TOTAL = TotalRule(id="nhl_over_3_5", sport="nhl", summary="", line=3.5, kalshi_band=(88, 95), phase="pregame",
+                  pregame_minutes=30, max_period=None)
+NHL_EVENT = "KXNHLGAME-26NOV01EDMNYR"
+
+
+class NhlMatcher:
+    def resolve_event(self, snapshot):
+        return {"home": {"ticker": f"{NHL_EVENT}-NYR", "event_ticker": NHL_EVENT},
+                "away": {"ticker": f"{NHL_EVENT}-EDM", "event_ticker": NHL_EVENT}}
+
+
+def total(n, ask):
+    return {"ticker": f"KXNHLTOTAL-26NOV01EDMNYR-{n}", "event_ticker": "KXNHLTOTAL-26NOV01EDMNYR",
+            "yes_sub_title": f"Over {n - 0.5} goals scored", "yes_ask_dollars": f"{ask / 100:.4f}"}
+
+
+def nhl_game(minutes_to_start=10, started=False, period=None):
+    import time as _t
+    start = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() + minutes_to_start * 60))
+    return GameSnapshot(game_id="n1", sport="nhl", home_team="New York Rangers", away_team="Edmonton Oilers",
+                        favorite_team="Edmonton Oilers", pregame_favorite_odds=-150, live_favorite_odds=-150,
+                        start_time_utc=start, is_live=started, is_final=False, period=period,
+                        away_score=0, home_score=0, started=started)
+
+
+def total_trader(tmp_path, markets, rule=TOTAL):
+    kalshi = FakeKalshi(markets)
+    return PaperTrader(kalshi, NhlMatcher(), [rule], 25, PaperBook(tmp_path / "paper.json")), kalshi
+
+
+def test_total_over_bets_the_right_line_just_before_puck_drop(tmp_path):
+    t, kalshi = total_trader(tmp_path, [total(3, 97), total(4, 90), total(5, 83)])
+    t.run([], [nhl_game(minutes_to_start=60)])    # too early
+    assert t.book.all_bets() == []
+    t.run([], [nhl_game()])
+    t.run([], [nhl_game()])
+    [bet] = t.book.all_bets()
+    assert bet["ticker"].endswith("-4") and bet["price_cents"] == 90 and bet["label"] == "Over 3.5 goals (pregame)"
+    assert kalshi.orders == 0
+
+
+def test_total_over_skips_prices_outside_the_band_and_started_games(tmp_path):
+    t, _ = total_trader(tmp_path, [total(4, 86)])
+    t.run([], [nhl_game()])
+    t.run([nhl_game(started=True, period=1)])
+    assert t.book.all_bets() == []
+
+
+def test_total_over_live_phase(tmp_path):
+    live = dataclasses.replace(TOTAL, phase="live", max_period=2)
+    t, _ = total_trader(tmp_path, [total(4, 90)], live)
+    t.run([], [nhl_game()])                                  # pregame: not this rule
+    t.run([nhl_game(started=True, period=3)])                # past max_period
+    assert t.book.all_bets() == []
+    t.run([nhl_game(started=True, period=2)])
+    assert len(t.book.all_bets()) == 1
