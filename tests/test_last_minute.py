@@ -49,3 +49,18 @@ def test_find_series():
     fifteen, others = find_series(K())
     assert fifteen == ["KXBTC15M", "KXETH15M"]
     assert others == ["KXWTI (WTI oil price)"]
+
+
+def test_print_rules(capsys):
+    from kalshibot.last_minute import print_rules
+
+    class K:
+        def _request(self, method, path):
+            return {"series": {"title": "BTC 15 min", "settlement_sources": [{"name": "CF Benchmarks", "url": "https://cfb"}]}}
+
+        def list_markets(self, **params):
+            return {"markets": [{"ticker": "KXBTC15M-X", "rules_primary": "If the average of the BRTI over the 60 seconds..."}]
+                    if params["status"] == "open" else []}
+    print_rules(K(), ["KXBTC15M"])
+    out = capsys.readouterr().out
+    assert "CF Benchmarks" in out and "rules_primary: If the average" in out

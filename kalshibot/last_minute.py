@@ -8,6 +8,8 @@ Usage:
   python -m kalshibot.last_minute                 (last 1 day, every 15-minute series found)
   python -m kalshibot.last_minute --days 7        (more markets = a firmer answer)
   python -m kalshibot.last_minute --series KXBTC15M KXETH15M
+  python -m kalshibot.last_minute --rules         (how BTC/ETH/SOL/XRP 15-minute markets settle;
+                                                   add --series ... for others)
 
 For every settled market it reads Kalshi's 1-minute price candles and, at
 1, 2, 3 and 5 minutes before close, checks whether either side could be
@@ -154,14 +156,55 @@ def report(name: str, entries: list[Entry], markets: int, threshold: int) -> Non
               f"break-even {break_even:.2%})  avg {avg_price:.1f}¢  net ${net:+,.2f} at ${STAKE_DOLLARS}/bet")
 
 
+RULES_DEFAULT = ["KXBTC15M", "KXETH15M", "KXSOL15M", "KXXRP15M"]
+RULE_FIELDS = ("title", "subtitle", "yes_sub_title", "open_time", "close_time", "expiration_time",
+               "floor_strike", "cap_strike", "strike_type", "rules_primary", "rules_secondary")
+
+
+def print_rules(kalshi, series: list[str]) -> None:
+    """Kalshi's own settlement rules for one current market of each series:
+    whether it settles on one price or an average, and from which source."""
+    for s in series:
+        print(f"\n===== {s} =====")
+        try:
+            info = kalshi._request("GET", f"/series/{s}").get("series", {})
+            print(f"Series: {info.get('title')}")
+            for src in info.get("settlement_sources") or []:
+                print(f"Settlement source: {src.get('name')} {src.get('url') or ''}")
+            if info.get("contract_url"):
+                print(f"Full contract terms: {info['contract_url']}")
+        except Exception as e:
+            print(f"(series info unavailable: {e})")
+        market = None
+        for status in ("open", "settled"):
+            try:
+                ms = kalshi.list_markets(series_ticker=s, status=status, limit=1).get("markets", [])
+            except Exception:
+                ms = []
+            if ms:
+                market = ms[0]
+                break
+        if market is None:
+            print("No market found.")
+            continue
+        print(f"Example market: {market.get('ticker')}")
+        for f in RULE_FIELDS:
+            if market.get(f) not in (None, ""):
+                print(f"  {f}: {market[f]}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="How often near-certain 15-minute markets reverse")
     parser.add_argument("--days", type=float, default=1, help="how far back (default 1 day)")
     parser.add_argument("--series", nargs="*", help="series tickers (default: every 15-minute series found)")
+    parser.add_argument("--rules", action="store_true", help="print how the markets settle, then stop")
     args = parser.parse_args()
 
     from .main import build_kalshi_client
     kalshi = build_kalshi_client(demo=False)
+    if args.rules:
+        print_rules(kalshi, args.series or RULES_DEFAULT)
+        return
     if args.series:
         series = args.series
     else:
