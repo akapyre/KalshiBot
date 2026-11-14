@@ -18,7 +18,9 @@ state/ev_observations.jsonl, to study the gaps later.
 
 total_over (kind: total_over): YES on an NHL "Over <line> goals" market
 (KXNHLTOTAL, same game code as KXNHLGAME) when its ask is in kalshi_cents,
-either just before puck drop or live. One per game.
+either just before puck drop or live. One per game. The same kind in
+rules.yaml bets real money: main.run_totals asks PaperTrader.total_bet
+which market to buy and places the order itself.
 """
 from __future__ import annotations
 
@@ -114,14 +116,16 @@ class TotalRule:
     phase: str
     pregame_minutes: float
     max_period: int | None
+    paper: bool = True             # False only for a rules.yaml rule: real orders
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TotalRule":
+    def from_dict(cls, d: dict[str, Any], paper_default: bool = True) -> "TotalRule":
         lo, hi = d["kalshi_cents"]
         return cls(id=d["id"], sport=d.get("sport", "nhl"), summary=" ".join(str(d.get("summary", "")).split()),
                    line=float(d["line"]), kalshi_band=(int(lo), int(hi)), phase=str(d.get("phase", "pregame")),
                    pregame_minutes=float(d.get("pregame_minutes", 30)),
-                   max_period=int(d["max_period"]) if d.get("max_period") is not None else None)
+                   max_period=int(d["max_period"]) if d.get("max_period") is not None else None,
+                   paper=bool(d.get("paper", paper_default)))
 
 
 def expected_return(fair: float, ask_cents: int) -> float:
@@ -140,10 +144,21 @@ def load_paper_rules(path: str | Path = "config/paper_rules.yaml") -> tuple[list
     rules: list[RunlineRule | EvRule | TotalRule] = []
     kinds = {"ev_moneyline": EvRule, "total_over": TotalRule}
     for r in raw.get("rules", []):
-        if r.get("enabled", True) is False:
+        if r.get("enabled", True) is False or r.get("kind") == "cbb_dip":   # cbb_dip: kalshibot/cbb_dip.py
             continue
         rules.append(kinds.get(r.get("kind"), RunlineRule).from_dict(r))
     return rules, float(raw.get("stake_usd", 25))
+
+
+def load_total_rules(path: str | Path = "config/rules.yaml") -> list[TotalRule]:
+    """The total_over rules in rules.yaml: real money unless `paper: true`."""
+    raw = yaml.safe_load(Path(path).read_text()) or {}
+    return [TotalRule.from_dict(r, paper_default=False) for r in raw.get("rules", [])
+            if r.get("kind") == "total_over" and r.get("enabled", True) is not False]
+
+
+def total_label(rule: TotalRule) -> str:
+    return f"Over {rule.line:g} {'goals' if rule.sport == 'nhl' else 'points'} ({rule.phase})"
 
 
 class PaperBook:
@@ -302,30 +317,41 @@ class PaperTrader:
                         "expected return %+.1f%%", rule.id, bet["game"], bet["label"], ask, american_odds(ask),
                         100 * fair, snapshot.fair_source, 100 * ev)
 
-    def check_total(self, rule: TotalRule, snapshot: GameSnapshot) -> None:
-        if snapshot.sport != rule.sport or snapshot.is_final or self.book.has(snapshot.game_id, rule.id):
-            return
+    def total_bet(self, rule: TotalRule, snapshot: GameSnapshot) -> tuple[dict[str, Any], int] | None:
+        """(Over market, its ask) when `rule` wants this game right now; no
+        bookkeeping, so the real-money path can use it too."""
+        if snapshot.sport != rule.sport or snapshot.is_final:
+            return None
         if rule.phase == "pregame":
             if snapshot.started:
-                return
+                return None
             try:
                 start = datetime.fromisoformat(snapshot.start_time_utc.replace("Z", "+00:00")).timestamp()
             except ValueError:
-                return
+                return None
             if start - time.time() > rule.pregame_minutes * 60:
-                return
+                return None
         elif not snapshot.started or snapshot.period is None or (
                 rule.max_period is not None and snapshot.period > rule.max_period):
-            return
+            return None
         event = self._event(snapshot)
         if event is None:
-            return
+            return None
         market = total_market(self._kalshi, str(event["home"]["event_ticker"]), rule.line)
         ask = yes_ask_cents(market) if market else None
         lo, hi = rule.kalshi_band
         if ask is None or not lo <= ask <= hi:
+            return None
+        return market, ask
+
+    def check_total(self, rule: TotalRule, snapshot: GameSnapshot) -> None:
+        if self.book.has(snapshot.game_id, rule.id):
             return
-        bet = self._paper_bet(rule.id, snapshot.game_id, snapshot, market, f"Over {rule.line:g} goals ({rule.phase})", ask)
+        found = self.total_bet(rule, snapshot)
+        if found is None:
+            return
+        market, ask = found
+        bet = self._paper_bet(rule.id, snapshot.game_id, snapshot, market, total_label(rule), ask)
         logger.info("PAPER BET (no order placed): %s -- %s, %s at Kalshi %d¢ (%+d), period %s, score %s",
                     rule.id, bet["game"], bet["label"], ask, american_odds(ask), snapshot.period, bet["score"])
 

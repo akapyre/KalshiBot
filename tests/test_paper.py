@@ -2,7 +2,7 @@ import dataclasses
 
 from kalshibot.odds_providers.base import GameSnapshot
 from kalshibot.paper import (EvRule, PaperBook, PaperTrader, RunlineRule, TotalRule, expected_return, load_paper_rules,
-                             win_chance)
+                             load_total_rules, win_chance)
 
 RULE = RunlineRule(id="mlb_underdog_runline", sport="mlb", summary="", dog_gain_points=15, max_inning=5,
                    kalshi_band=(10, 29), min_runs_over=1.5)
@@ -95,9 +95,14 @@ def test_settles_from_market_result(tmp_path):
 def test_config_loads():
     rules, stake = load_paper_rules()
     # mlb_underdog_runline is paused (enabled: false) until MLB is back
-    assert [r.id for r in rules] == ["ev_moneyline", "nhl_over_3_5_pregame"] and stake == 25
-    assert isinstance(rules[1], TotalRule) and rules[1].line == 3.5 and rules[1].kalshi_band == (88, 94)
+    assert [r.id for r in rules] == ["ev_moneyline"] and stake == 25
     assert isinstance(rules[0], EvRule) and rules[0].min_ev == 0.03
+
+
+def test_total_rules_in_rules_yaml():
+    [rule] = load_total_rules()
+    assert rule.id == "nhl_over_3_5_pregame" and rule.line == 3.5 and rule.kalshi_band == (88, 94)
+    assert rule.paper is True and rule.phase == "pregame" and rule.pregame_minutes == 20   # paper by the owner, 2026-11-01
 
 
 EV = EvRule(id="ev_moneyline", sports=("mlb",), summary="", min_ev=0.03, kalshi_band=(10, 90), pregame_hours=3)
@@ -216,3 +221,35 @@ def test_total_over_live_phase(tmp_path):
     assert t.book.all_bets() == []
     t.run([nhl_game(started=True, period=2)])
     assert len(t.book.all_bets()) == 1
+
+
+class FakeExecutor:
+    def __init__(self, state):
+        self.state, self.calls = state, []
+
+    def execute(self, decision, **kw):
+        self.calls.append((decision, kw))
+        self.state.record(decision.game_id, decision.rule_id)
+
+
+class FakeOdds:
+    def __init__(self, upcoming):
+        self.upcoming = upcoming
+
+    def list_upcoming_games(self, sport):
+        return [g for g in self.upcoming if g.sport == sport]
+
+
+def test_run_totals_places_one_real_order_per_game(tmp_path):
+    from kalshibot.main import run_totals
+    from kalshibot.state import BetStateStore
+    rule = dataclasses.replace(TOTAL, paper=False)
+    t, kalshi = total_trader(tmp_path, [total(3, 97), total(4, 90)], rule)
+    state = BetStateStore(tmp_path / "state.json")
+    ex = FakeExecutor(state)
+    for _ in range(2):
+        run_totals([rule], t, FakeOdds([nhl_game()]), [], state, ex, kalshi, 25)
+    [(decision, kw)] = ex.calls
+    assert kw["ticker"].endswith("-4") and kw["side"] == "yes" and kw["yes_price_cents"] == 90
+    assert decision.team == "Edmonton Oilers @ New York Rangers Over 3.5 goals (pregame)" and decision.stake_usd == 25
+    assert t.book.all_bets() == []                   # real bet, not a paper one

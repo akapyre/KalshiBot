@@ -341,7 +341,13 @@ def check_paper() -> None:
     for b in bets:
         pnl = "" if b["pnl"] is None else f"{b['pnl']:+.2f}"
         print(f"  {b['placed_at'][:16]}  {b['status'].upper():5} {pnl:>8}  {b['label']} at {b['price_cents']}c "
-              f"({b['game']}, inning {b['inning']}, {b['rule']})")
+              f"({b['game']}, {'inning ' + str(b['inning']) + ', ' if b.get('inning') is not None else ''}{b['rule']})")
+    print()
+    for rule in sorted({b["rule"] for b in bets}):
+        mine = [b for b in bets if b["rule"] == rule and b["status"] in ("won", "lost")]
+        wins = sum(b["status"] == "won" for b in mine)
+        print(f"  {rule:28} {wins}-{len(mine) - wins}, {sum(b['pnl'] for b in mine):+.2f} USD, "
+              f"{sum(b['rule'] == rule and b['status'] == 'open' for b in bets)} open")
     print("\nPaper record (no money): " + book.record_line())
 
 

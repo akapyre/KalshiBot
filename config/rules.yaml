@@ -442,6 +442,25 @@ rules:
     trigger: {kalshi_cents: [39, 58]}   # was 30-58; floor raised 2026-10-22 by the owner: no hockey bet past +160
     max_bets_per_game: 2
 
+  - id: nhl_over_3_5_pregame
+    paper: true                # paper only (tracked, no real orders), by the owner 2026-11-01 -- remove this line to bet real money
+    kind: total_over    # game totals -- run by main.run_totals, not the game rules
+    sport: nhl
+    summary: "Bet Over 3.5 goals just before puck drop when Kalshi prices it 88-94¢ (-733 to -1567)."
+    description: >
+      Paper rule from 2026-10-31, real money from 2026-11-01 at the owner's
+      request (add `paper: true` to go back to paper only). From a replay of
+      1,505 NHL games on Kalshi (Oct 2025 - Oct 2026;
+      state/nhl_totals_backtest.txt): Over 3.5 priced 88c+ at puck drop won
+      94% vs 90% priced, +5% over 125 games; cheaper Over 3.5 (85-88c) lost.
+      The 88c cutoff was chosen from that same replay, so expect less. Each
+      loss costs about nine wins. One bet per game, within 20 minutes of the
+      scheduled start, at the Kalshi ask (fill-or-cancel).
+    line: 3.5
+    kalshi_cents: [88, 94]
+    phase: pregame
+    pregame_minutes: 20
+
   - id: nba_favorite_drift
     summary: "Favorite opened at -200 or stronger. Bet it when its live odds drift to plus money: +100 to +180, not past +180."
     sport: nba

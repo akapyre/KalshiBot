@@ -25,7 +25,8 @@ from .matching import MarketMatcher
 from .odds_providers.base import Sport
 from .odds_providers.sportsgameodds import SportsGameOddsProvider
 from .props import PropWatcher, load_prop_rules
-from .paper import PaperBook, PaperTrader, kalshi_fee, load_paper_rules
+from .cbb_dip import CbbDipWatcher, load_cbb_dip_rules
+from .paper import PaperBook, PaperTrader, TotalRule, kalshi_fee, load_paper_rules, load_total_rules, total_label
 from .risk import RiskConfig, RiskManager
 from .rules_engine import BetDecision, RulesEngine, load_rules
 from .state import BetStateStore
@@ -189,6 +190,38 @@ def run_props(watcher: PropWatcher, odds_provider, live_games: list, state_store
                 logger.exception("Kalshi order failed for %s -- will retry next cycle %s", bet.label, body[:300])
 
 
+def run_totals(rules: list[TotalRule], paper: PaperTrader, odds_provider, live_games: list,
+               state_store: BetStateStore, executor: Executor, kalshi: KalshiClient, stake_usd: float) -> None:
+    """One cycle of the real-money total_over rules (rules.yaml, kind:
+    total_over): buy the game's Over line when its ask is in range. One bet
+    per game per rule; an order that doesn't fill is retried next cycle."""
+    sports = {r.sport for r in rules}
+    games = [g for g in live_games if g.sport in sports]
+    if any(r.phase == "pregame" for r in rules):
+        games += [g for sport in sports for g in odds_provider.list_upcoming_games(sport)]
+    for snapshot in games:
+        for rule in rules:
+            if state_store.has_fired(snapshot.game_id, rule.id):
+                continue
+            found = paper.total_bet(rule, snapshot)
+            if found is None:
+                continue
+            market, ask = found
+            game = f"{snapshot.away_team} @ {snapshot.home_team}"
+            logger.info("RULE TRIGGERED: %s -- %s, betting %s at Kalshi %d¢ (%+d)",
+                        rule.id, game, total_label(rule), ask, american_odds(ask))
+            decision = BetDecision(rule_id=rule.id, game_id=snapshot.game_id, sport=snapshot.sport,
+                                   team=f"{game} {total_label(rule)}", live_odds=american_odds(ask),
+                                   stake_usd=stake_usd, market="total", game=game)
+            try:
+                executor.execute(decision, ticker=market["ticker"], side="yes", yes_price_cents=ask,
+                                 exchange_index=market.get("exchange_index"),
+                                 open_position_count=get_open_position_count(kalshi), realized_pnl_today_usd=0.0)
+            except Exception as e:
+                body = getattr(getattr(e, "response", None), "text", "") or ""
+                logger.exception("Kalshi order failed for %s (%s) -- will retry next cycle %s", rule.id, game, body[:300])
+
+
 def _ledger_signature(ledger: BetLedger) -> tuple:
     return tuple((b["order_id"], b["status"]) for b in ledger.all_bets())
 
@@ -232,6 +265,10 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
     paper_rules, paper_stake = load_paper_rules()
     # Paper rules never place orders (kalshibot/paper.py has no executor).
     paper = PaperTrader(kalshi, matcher, paper_rules, paper_stake)
+    total_rules = load_total_rules()
+    paper.rules += [r for r in total_rules if r.paper]
+    live_total_rules = [r for r in total_rules if not r.paper]
+    cbb_dip = CbbDipWatcher(kalshi, load_cbb_dip_rules(), paper_stake, paper.book)
     ledger = BetLedger()
     executor = Executor(kalshi, risk, state_store, dry_run=dry_run, ledger=ledger)
     # (game, rule, error code) already sent to the phone, so a failure that
@@ -388,11 +425,24 @@ def run(poll_interval_s: int, dry_run: bool, demo: bool) -> None:
                           paper.book)
             except Exception:
                 logger.exception("Player-prop check failed this cycle")
+        if live_total_rules:
+            try:
+                run_totals(live_total_rules, paper, odds_provider, live_games, state_store, executor, kalshi,
+                           risk.stake_usd())
+            except Exception:
+                logger.exception("Totals check failed this cycle")
         if paper.rules or any(r.paper for r in prop_watcher.rules):
             try:
                 paper.run(live_games, [g for s in SPORTS for g in odds_provider.list_upcoming_games(s)])
             except Exception:
                 logger.exception("Paper rule check failed this cycle")
+        if cbb_dip.rules:
+            try:
+                cbb_dip.run()   # paper only: never places an order
+                if not paper.rules:
+                    paper.book.settle(kalshi)   # otherwise paper.run settles them
+            except Exception:
+                logger.exception("College basketball dip check failed this cycle")
         settle_finished_bets(kalshi, ledger)
         try:
             html = build_html(ledger.all_bets(), rule_texts, live_rows, mode=site_mode, stake_usd=risk.stake_usd())
